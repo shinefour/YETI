@@ -80,25 +80,37 @@ def health():
         console.print("[red]Cannot connect to YETI API. Is the server running?[/red]")
 
 
-def _send_message(message: str):
-    """Send a single message to YETI and display the response."""
+def _send_message(
+    message: str, history: list[dict] | None = None
+) -> str | None:
+    """Send a message to YETI and display the response."""
     try:
         response = httpx.post(
             f"{_api_url()}/api/chat",
-            json={"message": message},
-            timeout=30,
+            json={"message": message, "history": history or []},
+            timeout=60,
         )
         data = response.json()
+        if "error" in data:
+            console.print(f"[red]{data['error']}[/red]")
+            return None
         reply = data.get("response", "No response")
         console.print(Markdown(reply))
+        return reply
     except httpx.ConnectError:
-        console.print("[red]Cannot connect to YETI API. Is the server running?[/red]")
+        console.print(
+            "[red]Cannot connect to YETI API. "
+            "Is the server running?[/red]"
+        )
+        return None
 
 
 def _interactive_session():
     """Start an interactive REPL session with YETI."""
     console.print("[bold]YETI Interactive Session[/bold]")
     console.print("Type your message, or 'quit' to exit.\n")
+
+    history: list[dict] = []
 
     while True:
         try:
@@ -114,7 +126,10 @@ def _interactive_session():
         if not message.strip():
             continue
 
-        _send_message(message)
+        reply = _send_message(message, history)
+        if reply:
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": reply})
         console.print()
 
 

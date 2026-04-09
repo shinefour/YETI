@@ -1,12 +1,16 @@
 """YETI FastAPI application."""
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from yeti.agents.chat import chat as chat_agent
 from yeti.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -64,15 +68,27 @@ async def chat(message: dict):
     """Chat endpoint — receives a message, routes to the Chat Agent."""
     user_message = message.get("message", "")
     if not user_message:
-        return JSONResponse({"error": "No message provided"}, status_code=400)
+        return JSONResponse(
+            {"error": "No message provided"}, status_code=400
+        )
 
-    # TODO: Route to Chat Agent (PydanticAI)
-    return JSONResponse(
-        {
-            "response": f"YETI received: {user_message}",
-            "note": "Chat Agent not yet connected — this is a placeholder response.",
-        },
-    )
+    if not settings.anthropic_api_key:
+        return JSONResponse(
+            {"error": "YETI_ANTHROPIC_API_KEY not configured"},
+            status_code=503,
+        )
+
+    history = message.get("history", [])
+
+    try:
+        response = await chat_agent(user_message, history or None)
+        return JSONResponse({"response": response})
+    except Exception:
+        logger.exception("Chat agent error")
+        return JSONResponse(
+            {"error": "Chat agent failed. Check logs."},
+            status_code=500,
+        )
 
 
 @app.post("/webhooks/{integration}")

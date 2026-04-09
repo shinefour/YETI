@@ -27,6 +27,12 @@ def test_chat_empty_message():
     assert response.status_code == 400
 
 
+def test_chat_no_api_key():
+    response = client.post("/api/chat", json={"message": "hello"})
+    assert response.status_code == 503
+    assert "not configured" in response.json()["error"]
+
+
 def test_webhook_receiver():
     response = client.post("/webhooks/jira", json={"event": "test"})
     assert response.status_code == 200
