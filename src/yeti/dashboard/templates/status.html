@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Status{% endblock %}
+{% block content %}
+<h1>System Status</h1>
+
+<div class="grid grid-2">
+    <div class="card" hx-get="/dashboard/partials/services" hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <h2>Services</h2>
+        <div class="htmx-indicator">Loading...</div>
+    </div>
+
+    <div class="card" hx-get="/dashboard/partials/integrations" hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <h2>Integrations</h2>
+        <div class="htmx-indicator">Loading...</div>
+    </div>
+</div>
+{% endblock %}

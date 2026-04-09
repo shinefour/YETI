@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YETI — {% block title %}Dashboard{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        :root {
+            --bg: #09090b;
+            --surface: #111113;
+            --border: #1e1e22;
+            --text: #d4d4d8;
+            --text-dim: #5a5a65;
+            --accent: #6c9fff;
+            --green: #4ade80;
+            --yellow: #facc15;
+            --red: #f87171;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            font-size: 14px;
+        }
+        .layout { display: flex; min-height: 100vh; }
+        nav {
+            width: 180px;
+            border-right: 1px solid var(--border);
+            padding: 2rem 0.75rem;
+            position: fixed;
+            height: 100vh;
+        }
+        nav .logo {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 2.5rem;
+            padding: 0 0.5rem;
+            letter-spacing: 0.1em;
+        }
+        nav a {
+            display: block;
+            padding: 0.4rem 0.5rem;
+            color: var(--text-dim);
+            text-decoration: none;
+            border-radius: 4px;
+            margin-bottom: 1px;
+            font-size: 0.85rem;
+        }
+        nav a:hover, nav a.active { color: var(--text); }
+        main {
+            flex: 1;
+            margin-left: 180px;
+            padding: 2rem 2.5rem;
+        }
+        h1 {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 2rem;
+            color: var(--text-dim);
+        }
+        .card {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .card h2 {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 400;
+        }
+        .grid { display: grid; gap: 1rem; }
+        .grid-2 { grid-template-columns: 1fr 1fr; }
+        .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+        @media (max-width: 900px) {
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+        }
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.35rem 0;
+        }
+        .badge {
+            font-size: 0.75rem;
+            font-weight: 400;
+        }
+        .badge-green { color: var(--green); }
+        .badge-yellow { color: var(--yellow); }
+        .badge-red { color: var(--red); }
+        .badge-dim { color: var(--text-dim); }
+        .chat-container { width: 100%; }
+        .chat-messages {
+            max-height: 70vh;
+            overflow-y: auto;
+            margin-bottom: 1.5rem;
+        }
+        .chat-msg {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+        .chat-msg:last-child { border-bottom: none; }
+        .chat-msg strong { color: var(--text-dim); font-weight: 400; margin-right: 0.5rem; }
+        .chat-msg.user strong { color: var(--accent); }
+        .chat-input {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .chat-input input {
+            flex: 1;
+            padding: 0.6rem 0.75rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 0.9rem;
+            outline: none;
+        }
+        .chat-input input:focus { border-color: var(--text-dim); }
+        .chat-input button {
+            padding: 0.6rem 1.25rem;
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .chat-input button:hover { border-color: var(--accent); }
+        .htmx-indicator { opacity: 0; transition: opacity 200ms; }
+        .htmx-request .htmx-indicator { opacity: 1; }
+        .muted { color: var(--text-dim); }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <nav>
+            <div class="logo">YETI</div>
+            <a href="/dashboard" {% if active == "status" %}class="active"{% endif %}>Status</a>
+            <a href="/dashboard/chat" {% if active == "chat" %}class="active"{% endif %}>Chat</a>
+            <a href="/dashboard/actions" {% if active == "actions" %}class="active"{% endif %}>Actions</a>
+            <a href="/dashboard/knowledge" {% if active == "knowledge" %}class="active"{% endif %}>Knowledge</a>
+            <a href="/dashboard/people" {% if active == "people" %}class="active"{% endif %}>People</a>
+            <a href="/dashboard/activity" {% if active == "activity" %}class="active"{% endif %}>Activity</a>
+        </nav>
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

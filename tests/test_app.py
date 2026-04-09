@@ -38,3 +38,21 @@ def test_webhook_receiver():
     assert response.status_code == 200
     data = response.json()
     assert data["integration"] == "jira"
+
+
+def test_dashboard_status_page():
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert "YETI" in response.text
+
+
+def test_dashboard_chat_page():
+    response = client.get("/dashboard/chat")
+    assert response.status_code == 200
+    assert "Chat" in response.text
+
+
+def test_dashboard_services_partial():
+    response = client.get("/dashboard/partials/services")
+    assert response.status_code == 200
+    assert "API" in response.text
