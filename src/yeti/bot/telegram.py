@@ -1,5 +1,6 @@
 """YETI Telegram Bot — mobile interface."""
 
+import json
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -202,9 +203,40 @@ async def handle_photo(
 ) -> None:
     if not _is_authorized(update):
         return
-    await update.message.reply_text(
-        "Image analysis coming soon."
-    )
+
+    await update.message.reply_text("Analyzing image...")
+
+    photo = update.message.photo[-1]  # highest resolution
+    file = await photo.get_file()
+    image_bytes = await file.download_as_bytearray()
+
+    from yeti.vision.extract import extract_both
+
+    results = await extract_both(bytes(image_bytes))
+
+    lines = []
+    for method, result in results.items():
+        label = method.replace("_", " + ").upper()
+        lines.append(f"--- {label} ---")
+        if "error" in result:
+            lines.append(f"Error: {result['error']}")
+        else:
+            data = result.get("structured")
+            if data:
+                lines.append(json.dumps(data, indent=2))
+            else:
+                lines.append("Could not parse structured data")
+            raw = result.get("raw_text", "")
+            if raw:
+                lines.append(f"\nRaw OCR:\n{raw[:500]}")
+        lines.append("")
+
+    response = "\n".join(lines)
+    # Telegram has a 4096 char limit
+    if len(response) > 4000:
+        response = response[:4000] + "\n...(truncated)"
+
+    await update.message.reply_text(response)
 
 
 def main():
