@@ -19,6 +19,9 @@ servers:
       - 178.104.179.33
     cmd: python -m yeti.bot.telegram
 
+builder:
+  arch: amd64
+
 proxy:
   host: yeti.diconve.com
   ssl: true
