@@ -91,18 +91,11 @@ async def activity_page(request: Request):
 
 @router.get("/partials/services", response_class=HTMLResponse)
 async def services_partial():
-    import httpx
+    from yeti.app import get_system_status
 
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://localhost:8000/api/status")
-            data = r.json()
-            services = data.get("services", {})
-    except Exception:
-        services = {"api": "unknown"}
-
+    data = await get_system_status()
     rows = []
-    for name, state in services.items():
+    for name, state in data.get("services", {}).items():
         badge = _badge_for(state)
         rows.append(
             f'<div class="status-row">'
@@ -115,18 +108,11 @@ async def services_partial():
     "/partials/integrations", response_class=HTMLResponse
 )
 async def integrations_partial():
-    import httpx
+    from yeti.app import get_system_status
 
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://localhost:8000/api/status")
-            data = r.json()
-            integrations = data.get("integrations", {})
-    except Exception:
-        integrations = {}
-
+    data = await get_system_status()
     rows = []
-    for name, state in integrations.items():
+    for name, state in data.get("integrations", {}).items():
         badge = _badge_for(state)
         rows.append(
             f'<div class="status-row">'

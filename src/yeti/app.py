@@ -113,12 +113,10 @@ async def health():
     )
 
 
-@app.get("/api/status")
-async def status():
-    """System status — integration health, service states."""
+async def get_system_status() -> dict:
+    """Collect system status — shared by API and dashboard."""
     services = {"api": "up"}
 
-    # Check Redis
     try:
         import redis as _redis
 
@@ -128,7 +126,6 @@ async def status():
     except Exception:
         services["redis"] = "down"
 
-    # Check accessory services via HTTP
     for name, url in [
         ("chromadb", f"{settings.chromadb_url}/api/v2/heartbeat"),
         ("ollama", f"{settings.ollama_base_url}/api/tags"),
@@ -140,7 +137,6 @@ async def status():
         except Exception:
             services[name] = "down"
 
-    # Check integrations
     integrations = {}
     jira = JiraAdapter()
     integrations["jira"] = (
@@ -161,16 +157,18 @@ async def status():
     for name in ["teams", "slack", "calendar", "email"]:
         integrations[name] = "not_configured"
 
-    return JSONResponse(
-        {
-            "status": "healthy",
-            "started_at": getattr(
-                app.state, "started_at", datetime.now(UTC)
-            ).isoformat(),
-            "services": services,
-            "integrations": integrations,
-        },
-    )
+    return {"services": services, "integrations": integrations}
+
+
+@app.get("/api/status")
+async def status():
+    """System status — integration health, service states."""
+    data = await get_system_status()
+    data["status"] = "healthy"
+    data["started_at"] = getattr(
+        app.state, "started_at", datetime.now(UTC)
+    ).isoformat()
+    return JSONResponse(data)
 
 
 @app.post("/api/chat")
