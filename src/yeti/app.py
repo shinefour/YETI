@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from yeti.agents.chat import chat as chat_agent
+from yeti.api.actions import router as actions_router
 from yeti.config import settings
 from yeti.dashboard.routes import router as dashboard_router
 
@@ -26,6 +27,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.include_router(actions_router)
 app.include_router(dashboard_router)
 
 

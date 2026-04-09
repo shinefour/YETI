@@ -80,6 +80,92 @@ def health():
         console.print("[red]Cannot connect to YETI API. Is the server running?[/red]")
 
 
+@app.command()
+def actions(
+    status: str = typer.Option(
+        None, "--status", "-s", help="Filter by status"
+    ),
+    project: str = typer.Option(
+        None, "--project", "-p", help="Filter by project"
+    ),
+):
+    """List action items."""
+    try:
+        params = {}
+        if status:
+            params["status"] = status
+        if project:
+            params["project"] = project
+        response = httpx.get(
+            f"{_api_url()}/api/actions",
+            params=params,
+            timeout=5,
+        )
+        items = response.json()
+
+        if not items:
+            console.print("[dim]No action items found.[/dim]")
+            return
+
+        table = Table(title="Action Items")
+        table.add_column("Status", width=15)
+        table.add_column("Title")
+        table.add_column("Project", style="dim")
+        table.add_column("ID", style="dim", width=8)
+
+        for item in items:
+            s = item["status"]
+            if s == "active":
+                color = "green"
+            elif s == "pending_review":
+                color = "yellow"
+            elif s == "completed":
+                color = "dim"
+            else:
+                color = "red"
+            table.add_row(
+                f"[{color}]{s}[/{color}]",
+                item["title"],
+                item.get("project", ""),
+                item["id"][:8],
+            )
+
+        console.print(table)
+
+    except httpx.ConnectError:
+        console.print(
+            "[red]Cannot connect to YETI API.[/red]"
+        )
+
+
+@app.command(name="add-action")
+def add_action(
+    title: str = typer.Argument(..., help="Action item title"),
+    project: str = typer.Option("", "--project", "-p"),
+    source: str = typer.Option("cli", "--source"),
+):
+    """Create a new action item."""
+    try:
+        response = httpx.post(
+            f"{_api_url()}/api/actions",
+            json={
+                "title": title,
+                "project": project,
+                "source": source,
+            },
+            timeout=5,
+        )
+        item = response.json()
+        console.print(
+            f"[green]Created:[/green] {item['title']} "
+            f"[dim]({item['id'][:8]})[/dim]"
+        )
+    except httpx.ConnectError:
+        console.print(
+            "[red]Cannot connect to YETI API.[/red]"
+        )
+
+
 def _send_message(
     message: str, history: list[dict] | None = None
 ) -> str | None:

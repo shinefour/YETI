@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from yeti.agents.chat import chat as chat_agent
 from yeti.config import settings
+from yeti.models.actions import ActionStatus, ActionStore
 
 router = APIRouter(prefix="/dashboard")
 
@@ -157,6 +158,70 @@ async def chat_partial(message: str = Form(...)):
             + f'<div class="chat-msg assistant">'
             f"<strong>YETI:</strong> Error: {e}</div>"
         )
+
+
+@router.get(
+    "/partials/actions", response_class=HTMLResponse
+)
+async def actions_partial(status: str = "pending_review"):
+    try:
+        action_status = ActionStatus(status)
+    except ValueError:
+        return "<p class='muted'>Invalid status</p>"
+
+    store = ActionStore()
+    items = store.list(status=action_status)
+
+    if not items:
+        return "<p class='muted'>None</p>"
+
+    rows = []
+    for item in items:
+        buttons = ""
+        if action_status == ActionStatus.PENDING_REVIEW:
+            buttons = (
+                f' <button class="badge badge-green" '
+                f'hx-patch="/api/actions/{item.id}/status" '
+                f'hx-vals=\'{{"status":"active"}}\' '
+                f"hx-swap=\"none\" "
+                f'hx-on::after-request="'
+                f"this.closest('[hx-get]')"
+                f'.dispatchEvent(new Event(\'refresh\'))"'
+                f">approve</button>"
+                f' <button class="badge badge-red" '
+                f'hx-patch="/api/actions/{item.id}/status" '
+                f'hx-vals=\'{{"status":"cancelled"}}\' '
+                f"hx-swap=\"none\" "
+                f'hx-on::after-request="'
+                f"this.closest('[hx-get]')"
+                f'.dispatchEvent(new Event(\'refresh\'))"'
+                f">reject</button>"
+            )
+        elif action_status == ActionStatus.ACTIVE:
+            buttons = (
+                f' <button class="badge badge-green" '
+                f'hx-patch="/api/actions/{item.id}/status" '
+                f'hx-vals=\'{{"status":"completed"}}\' '
+                f"hx-swap=\"none\" "
+                f'hx-on::after-request="'
+                f"this.closest('[hx-get]')"
+                f'.dispatchEvent(new Event(\'refresh\'))"'
+                f">done</button>"
+            )
+
+        project_tag = ""
+        if item.project:
+            project_tag = (
+                f' <span class="badge badge-dim">'
+                f"{item.project}</span>"
+            )
+
+        rows.append(
+            f'<div class="status-row">'
+            f"<span>{item.title}{project_tag}</span>"
+            f"<span>{buttons}</span></div>"
+        )
+    return "\n".join(rows)
 
 
 def _badge_for(state: str) -> str:

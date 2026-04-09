@@ -3,13 +3,16 @@
 {% block content %}
 <h1>Action Items</h1>
 
-<div class="card">
-    <h2>Pending Review</h2>
-    <p style="color: var(--text-dim)">No pending action items. Background agents will propose items here once integrations are connected.</p>
+<div class="grid grid-2">
+    <div class="card" hx-get="/dashboard/partials/actions?status=pending_review" hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <h2>Pending Review</h2>
+    </div>
+    <div class="card" hx-get="/dashboard/partials/actions?status=active" hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <h2>Active</h2>
+    </div>
 </div>
 
-<div class="card">
-    <h2>Active</h2>
-    <p style="color: var(--text-dim)">No active action items yet.</p>
+<div class="card" hx-get="/dashboard/partials/actions?status=completed" hx-trigger="load" hx-swap="innerHTML">
+    <h2>Completed</h2>
 </div>
 {% endblock %}
