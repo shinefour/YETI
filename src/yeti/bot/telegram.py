@@ -239,15 +239,8 @@ async def handle_photo(
     await update.message.reply_text(response)
 
 
-def main():
-    """Start the Telegram bot."""
-    if not settings.telegram_bot_token:
-        logger.error(
-            "YETI_TELEGRAM_BOT_TOKEN not set — "
-            "cannot start Telegram bot"
-        )
-        return
-
+def _build_app() -> Application:
+    """Build the Telegram application with all handlers."""
     app = Application.builder().token(
         settings.telegram_bot_token
     ).build()
@@ -260,9 +253,42 @@ def main():
     text_filter = filters.TEXT & ~filters.COMMAND
     app.add_handler(MessageHandler(text_filter, handle_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    return app
 
-    logger.info("YETI Telegram bot starting...")
-    app.run_polling(drop_pending_updates=True)
+
+def main():
+    """Start the Telegram bot with retry on conflict."""
+    import time
+
+    if not settings.telegram_bot_token:
+        logger.error(
+            "YETI_TELEGRAM_BOT_TOKEN not set — "
+            "cannot start Telegram bot"
+        )
+        return
+
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        logger.info(
+            "YETI Telegram bot starting (attempt %d)...",
+            attempt,
+        )
+        try:
+            app = _build_app()
+            app.run_polling(drop_pending_updates=True)
+            break  # clean shutdown
+        except Exception as e:
+            if "Conflict" in str(e) and attempt < max_retries:
+                wait = attempt * 10
+                logger.warning(
+                    "Telegram conflict — another session "
+                    "still active. Waiting %ds...",
+                    wait,
+                )
+                time.sleep(wait)
+            else:
+                logger.exception("Telegram bot failed")
+                raise
 
 
 if __name__ == "__main__":
