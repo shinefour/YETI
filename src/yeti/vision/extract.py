@@ -64,36 +64,41 @@ Return ONLY valid JSON. Do not invent any data."""
 
 
 def _ocr_with_preprocessing(image: Image.Image) -> str:
-    """Run Tesseract with multiple preprocessing strategies."""
+    """Run Tesseract with multiple preprocessing and rotation strategies."""
     import pytesseract
     from PIL import ImageEnhance, ImageFilter
 
-    gray = image.convert("L")
     best = ""
 
-    # Strategy 1: binary threshold (best for clean backgrounds)
-    threshold = gray.point(lambda p: 255 if p > 128 else 0)
-    text = pytesseract.image_to_string(
-        threshold, lang="eng+deu", config="--psm 6"
-    ).strip()
-    if len(text) > len(best):
-        best = text
+    # Try 0° and 90° rotations
+    rotations = [image, image.rotate(90, expand=True)]
 
-    # Strategy 2: contrast + sharpen, PSM 6 (best for dark backgrounds)
-    enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
-    sharp = enhanced.filter(ImageFilter.SHARPEN)
-    text = pytesseract.image_to_string(
-        sharp, lang="eng+deu", config="--psm 6"
-    ).strip()
-    if len(text) > len(best):
-        best = text
+    for rotated in rotations:
+        gray = rotated.convert("L")
 
-    # Strategy 3: default PSM 3
-    text = pytesseract.image_to_string(
-        sharp, lang="eng+deu", config="--psm 3"
-    ).strip()
-    if len(text) > len(best):
-        best = text
+        # Strategy 1: binary threshold
+        threshold = gray.point(lambda p: 255 if p > 128 else 0)
+        text = pytesseract.image_to_string(
+            threshold, lang="eng+deu", config="--psm 6"
+        ).strip()
+        if len(text) > len(best):
+            best = text
+
+        # Strategy 2: contrast + sharpen, PSM 6
+        enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
+        sharp = enhanced.filter(ImageFilter.SHARPEN)
+        text = pytesseract.image_to_string(
+            sharp, lang="eng+deu", config="--psm 6"
+        ).strip()
+        if len(text) > len(best):
+            best = text
+
+        # Strategy 3: default PSM 3
+        text = pytesseract.image_to_string(
+            sharp, lang="eng+deu", config="--psm 3"
+        ).strip()
+        if len(text) > len(best):
+            best = text
 
     return best
 
@@ -155,7 +160,9 @@ async def extract_tesseract_ollama(
         }
 
 
-async def extract_llava(image_bytes: bytes) -> dict:
+async def extract_llava(
+    image_bytes: bytes,
+) -> dict:
     """Approach 2: Ollama LLaVA vision model (OCR + structure)."""
     image_b64 = base64.b64encode(image_bytes).decode()
 
@@ -186,15 +193,51 @@ async def extract_llava(image_bytes: bytes) -> dict:
         }
 
 
+def _find_best_rotation(image_bytes: bytes) -> bytes:
+    """Try 0° and 90° rotation, return whichever Tesseract reads better."""
+    import pytesseract
+
+    image = Image.open(BytesIO(image_bytes))
+    best_len = 0
+    best_angle = 0
+
+    for angle in [0, 90]:
+        rotated = image.rotate(angle, expand=True) if angle else image
+        gray = rotated.convert("L")
+        threshold = gray.point(lambda p: 255 if p > 128 else 0)
+        text = pytesseract.image_to_string(
+            threshold, config="--psm 6"
+        ).strip()
+        if len(text) > best_len:
+            best_len = len(text)
+            best_angle = angle
+
+    if best_angle != 0:
+        logger.info("Image rotated %d° for better OCR", best_angle)
+        rotated = image.rotate(best_angle, expand=True)
+        buf = BytesIO()
+        rotated.save(buf, format="JPEG")
+        return buf.getvalue()
+
+    return image_bytes
+
+
 async def extract_both(
     image_bytes: bytes,
 ) -> dict:
-    """Run both approaches and return results for comparison."""
+    """Detect best rotation, then run both approaches."""
     import asyncio
 
+    # Find best rotation first (quick Tesseract check)
+    try:
+        oriented = _find_best_rotation(image_bytes)
+    except Exception:
+        logger.exception("Rotation detection failed")
+        oriented = image_bytes
+
     results = await asyncio.gather(
-        extract_tesseract_ollama(image_bytes),
-        extract_llava(image_bytes),
+        extract_tesseract_ollama(oriented),
+        extract_llava(oriented),
         return_exceptions=True,
     )
 
