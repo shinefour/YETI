@@ -86,7 +86,7 @@ async def extract_tesseract_ollama(
     prompt = STRUCTURE_PROMPT.format(text=raw_text)
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             r = await client.post(
                 f"{settings.ollama_base_url}/api/generate",
                 json={
@@ -127,7 +127,7 @@ async def extract_llava(image_bytes: bytes) -> dict:
     image_b64 = base64.b64encode(image_bytes).decode()
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             r = await client.post(
                 f"{settings.ollama_base_url}/api/generate",
                 json={

@@ -220,15 +220,12 @@ async def handle_photo(
         lines.append(f"--- {label} ---")
         if "error" in result:
             lines.append(f"Error: {result['error']}")
-        else:
-            data = result.get("structured")
-            if data:
-                lines.append(json.dumps(data, indent=2))
-            else:
-                lines.append("Could not parse structured data")
-            raw = result.get("raw_text", "")
-            if raw:
-                lines.append(f"\nRaw OCR:\n{raw[:500]}")
+        data = result.get("structured")
+        if data:
+            lines.append(json.dumps(data, indent=2))
+        raw = result.get("raw_text", "")
+        if raw:
+            lines.append(f"\nRaw OCR:\n{raw[:500]}")
         lines.append("")
 
     response = "\n".join(lines)
