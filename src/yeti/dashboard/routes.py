@@ -18,16 +18,9 @@ templates = Jinja2Templates(
 
 
 @router.get("/", response_class=HTMLResponse)
-async def status_page(request: Request):
+async def home_page(request: Request):
     return templates.TemplateResponse(
-        request, "status.html", {"active": "status"}
-    )
-
-
-@router.get("/chat", response_class=HTMLResponse)
-async def chat_page(request: Request):
-    return templates.TemplateResponse(
-        request, "chat.html", {"active": "chat"}
+        request, "home.html", {"active": "chat"}
     )
 
 
@@ -89,34 +82,26 @@ async def activity_page(request: Request):
 # --- HTMX partials ---
 
 
-@router.get("/partials/services", response_class=HTMLResponse)
-async def services_partial():
-    from yeti.app import get_system_status
-
-    data = await get_system_status()
-    rows = []
-    for name, state in data.get("services", {}).items():
-        badge = _badge_for(state)
-        rows.append(
-            f'<div class="status-row">'
-            f"<span>{name.title()}</span>{badge}</div>"
-        )
-    return "\n".join(rows)
-
-
 @router.get(
-    "/partials/integrations", response_class=HTMLResponse
+    "/partials/status-sidebar", response_class=HTMLResponse
 )
-async def integrations_partial():
+async def status_sidebar_partial():
     from yeti.app import get_system_status
 
     data = await get_system_status()
-    rows = []
-    for name, state in data.get("integrations", {}).items():
-        badge = _badge_for(state)
+    rows = ["<h3>Services</h3>"]
+    for name, state in data.get("services", {}).items():
+        dot = _dot_for(state)
         rows.append(
-            f'<div class="status-row">'
-            f"<span>{name.title()}</span>{badge}</div>"
+            f'<div class="status-item">'
+            f'<span class="name">{name}</span>{dot}</div>'
+        )
+    rows.append("<h3 style='margin-top:0.5rem'>Integrations</h3>")
+    for name, state in data.get("integrations", {}).items():
+        dot = _dot_for(state)
+        rows.append(
+            f'<div class="status-item">'
+            f'<span class="name">{name}</span>{dot}</div>'
         )
     return "\n".join(rows)
 
@@ -215,14 +200,13 @@ async def actions_partial(status: str = "pending_review"):
     return "\n".join(rows)
 
 
-def _badge_for(state: str) -> str:
-    if state == "up" or state == "connected":
-        css = "badge-green"
+def _dot_for(state: str) -> str:
+    if state in ("up", "connected"):
+        css = "dot-green"
     elif state == "unknown":
-        css = "badge-yellow"
+        css = "dot-yellow"
     elif state == "not_configured":
-        css = "badge-dim"
+        css = "dot-dim"
     else:
-        css = "badge-red"
-    label = state.replace("_", " ")
-    return f'<span class="badge {css}">{label}</span>'
+        css = "dot-red"
+    return f'<span class="dot {css}"></span>'

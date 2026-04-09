@@ -8,7 +8,6 @@
     <style>
         :root {
             --bg: #09090b;
-            --surface: #111113;
             --border: #1e1e22;
             --text: #d4d4d8;
             --text-dim: #5a5a65;
@@ -18,6 +17,7 @@
             --red: #f87171;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             background: var(--bg);
@@ -25,22 +25,26 @@
             line-height: 1.5;
             font-size: 14px;
         }
-        .layout { display: flex; min-height: 100vh; }
+        .layout { display: flex; height: 100vh; overflow: hidden; }
         nav {
             width: 180px;
+            min-width: 180px;
             border-right: 1px solid var(--border);
             padding: 2rem 0.75rem;
-            position: fixed;
+            display: flex;
+            flex-direction: column;
             height: 100vh;
+            overflow-y: auto;
         }
         nav .logo {
             font-size: 1.1rem;
             font-weight: 700;
             color: var(--accent);
-            margin-bottom: 2.5rem;
+            margin-bottom: 2rem;
             padding: 0 0.5rem;
             letter-spacing: 0.1em;
         }
+        nav .nav-links { flex: 1; }
         nav a {
             display: block;
             padding: 0.4rem 0.5rem;
@@ -51,9 +55,43 @@
             font-size: 0.85rem;
         }
         nav a:hover, nav a.active { color: var(--text); }
+        nav .status-sidebar {
+            border-top: 1px solid var(--border);
+            padding-top: 1rem;
+            margin-top: 1rem;
+        }
+        nav .status-sidebar h3 {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 400;
+            margin-bottom: 0.5rem;
+            padding: 0 0.5rem;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.15rem 0.5rem;
+            font-size: 0.75rem;
+        }
+        .status-item .name { color: var(--text-dim); }
+        .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+        .dot-green { background: var(--green); }
+        .dot-yellow { background: var(--yellow); }
+        .dot-red { background: var(--red); }
+        .dot-dim { background: var(--text-dim); opacity: 0.3; }
         main {
             flex: 1;
-            margin-left: 180px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .page-content {
+            flex: 1;
+            overflow-y: auto;
             padding: 2rem 2.5rem;
         }
         h1 {
@@ -96,11 +134,18 @@
         .badge-yellow { color: var(--yellow); }
         .badge-red { color: var(--red); }
         .badge-dim { color: var(--text-dim); }
-        .chat-container { width: 100%; }
+
+        /* Chat */
+        .chat-page {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 1.5rem 2.5rem 1rem;
+        }
         .chat-messages {
-            max-height: 70vh;
+            flex: 1;
             overflow-y: auto;
-            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
         }
         .chat-msg {
             padding: 0.75rem 0;
@@ -113,6 +158,8 @@
         .chat-input {
             display: flex;
             gap: 0.5rem;
+            padding: 1rem 0;
+            border-top: 1px solid var(--border);
         }
         .chat-input input {
             flex: 1;
@@ -135,8 +182,17 @@
             font-size: 0.85rem;
         }
         .chat-input button:hover { border-color: var(--accent); }
-        .htmx-indicator { opacity: 0; transition: opacity 200ms; }
-        .htmx-request .htmx-indicator { opacity: 1; }
+        .chat-thinking {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            padding: 0.5rem 0;
+            display: none;
+        }
+        .chat-thinking.active { display: block; }
+        @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+        .chat-thinking span { animation: pulse 1.5s infinite; }
+        .htmx-request .chat-thinking { display: block; }
+        .htmx-request .chat-input button { opacity: 0.3; pointer-events: none; }
         .muted { color: var(--text-dim); }
     </style>
 </head>
@@ -144,12 +200,15 @@
     <div class="layout">
         <nav>
             <div class="logo">YETI</div>
-            <a href="/dashboard" {% if active == "status" %}class="active"{% endif %}>Status</a>
-            <a href="/dashboard/chat" {% if active == "chat" %}class="active"{% endif %}>Chat</a>
-            <a href="/dashboard/actions" {% if active == "actions" %}class="active"{% endif %}>Actions</a>
-            <a href="/dashboard/knowledge" {% if active == "knowledge" %}class="active"{% endif %}>Knowledge</a>
-            <a href="/dashboard/people" {% if active == "people" %}class="active"{% endif %}>People</a>
-            <a href="/dashboard/activity" {% if active == "activity" %}class="active"{% endif %}>Activity</a>
+            <div class="nav-links">
+                <a href="/dashboard" {% if active == "chat" %}class="active"{% endif %}>Chat</a>
+                <a href="/dashboard/actions" {% if active == "actions" %}class="active"{% endif %}>Actions</a>
+                <a href="/dashboard/knowledge" {% if active == "knowledge" %}class="active"{% endif %}>Knowledge</a>
+                <a href="/dashboard/people" {% if active == "people" %}class="active"{% endif %}>People</a>
+                <a href="/dashboard/activity" {% if active == "activity" %}class="active"{% endif %}>Activity</a>
+            </div>
+            <div class="status-sidebar" hx-get="/dashboard/partials/status-sidebar" hx-trigger="load, every 30s" hx-swap="innerHTML">
+            </div>
         </nav>
         <main>
             {% block content %}{% endblock %}

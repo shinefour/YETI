@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Chat{% endblock %}
+{% block content %}
+<div class="chat-page" id="chat-container">
+    <div class="chat-messages" id="messages"></div>
+    <div class="chat-thinking" id="thinking"><span>YETI is thinking...</span></div>
+    <form class="chat-input" id="chat-form"
+          hx-post="/dashboard/partials/chat"
+          hx-target="#messages" hx-swap="beforeend"
+          hx-indicator="#chat-container"
+          hx-on::after-request="this.reset(); document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight">
+        <input type="text" name="message" placeholder="Ask YETI something..." autocomplete="off" autofocus>
+        <button type="submit">Send</button>
+    </form>
+</div>
+{% endblock %}
