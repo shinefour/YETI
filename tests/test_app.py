@@ -27,7 +27,10 @@ def test_chat_empty_message():
     assert response.status_code == 400
 
 
-def test_chat_no_api_key():
+def test_chat_no_api_key(monkeypatch):
+    from yeti import config
+
+    monkeypatch.setattr(config.settings, "anthropic_api_key", "")
     response = client.post("/api/chat", json={"message": "hello"})
     assert response.status_code == 503
     assert "not configured" in response.json()["error"]
