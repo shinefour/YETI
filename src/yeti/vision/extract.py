@@ -39,22 +39,28 @@ Text to extract from:
 {text}"""
 
 LLAVA_PROMPT = """\
-Look at this image carefully. Determine if it shows a business card, \
-receipt, or other document.
+Read ALL text visible in this image. The image may be rotated — \
+read it in whatever orientation makes the text readable.
 
-For a business card, extract:
+IMPORTANT: Only extract information you can actually read in the \
+image. Never invent or guess data. Leave fields empty ("") if you \
+cannot read them.
+
+First determine what this is: a business card, receipt, or other \
+document.
+
+For a business card, return:
 {{"type": "business_card", "name": "", "company": "", "title": "", \
-"phone": "", "email": "", "address": "", "website": "", "notes": ""}}
+"phone": "", "email": "", "address": "", "website": ""}}
 
-For a receipt, extract:
+For a receipt, return:
 {{"type": "receipt", "vendor": "", "date": "", "total": "", \
-"currency": "", "items": [{{"description": "", "amount": ""}}], \
-"payment_method": "", "notes": ""}}
+"currency": "", "items": [{{"description": "", "amount": ""}}]}}
 
-For anything else:
-{{"type": "document", "summary": "", "key_info": {{}}}}
+For anything else, return:
+{{"type": "document", "summary": "", "raw_text": ""}}
 
-Return ONLY valid JSON, no other text."""
+Return ONLY valid JSON. Do not invent any data."""
 
 
 async def extract_tesseract_ollama(
@@ -80,7 +86,7 @@ async def extract_tesseract_ollama(
     prompt = STRUCTURE_PROMPT.format(text=raw_text)
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
                 f"{settings.ollama_base_url}/api/generate",
                 json={
@@ -89,7 +95,15 @@ async def extract_tesseract_ollama(
                     "stream": False,
                 },
             )
-            r.raise_for_status()
+            if not r.is_success:
+                body = r.text[:200]
+                logger.error("Ollama error %s: %s", r.status_code, body)
+                return {
+                    "method": "tesseract+ollama",
+                    "raw_text": raw_text,
+                    "structured": None,
+                    "error": f"Ollama returned {r.status_code}: {body}",
+                }
             response_text = r.json()["response"]
 
         structured = _parse_json_response(response_text)
@@ -99,6 +113,7 @@ async def extract_tesseract_ollama(
             "structured": structured,
         }
     except Exception as e:
+        logger.exception("Ollama structuring failed")
         return {
             "method": "tesseract+ollama",
             "raw_text": raw_text,
