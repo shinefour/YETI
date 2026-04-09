@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+echo "Running tests..."
+.venv/bin/ruff check src/ tests/
+.venv/bin/pytest tests/ -q
+
+echo ""
+echo "Deploying YETI..."
+kamal deploy -c config/deploy.yml
+
+echo ""
+echo "Deploy complete. Verify at https://yeti.diconve.com/health"
