@@ -1,28 +1,26 @@
 # Kamal 2 deployment configuration for YETI
-# See: https://kamal-deploy.org/docs/configuration/
-
 service: yeti
 image: yeti
 
 servers:
   web:
     hosts:
-      - <HETZNER_VPS_IP>  # TODO: Replace with actual IP
+      - 178.104.179.33
   worker:
     hosts:
-      - <HETZNER_VPS_IP>
+      - 178.104.179.33
     cmd: celery -A yeti.worker worker --loglevel=info
   scheduler:
     hosts:
-      - <HETZNER_VPS_IP>
+      - 178.104.179.33
     cmd: celery -A yeti.worker beat --loglevel=info
   telegram:
     hosts:
-      - <HETZNER_VPS_IP>
+      - 178.104.179.33
     cmd: python -m yeti.bot.telegram
 
 proxy:
-  host: <YETI_DOMAIN>  # TODO: Replace with actual domain
+  host: yeti.diconve.com
   ssl: true
   app_port: 8000
   healthcheck:
@@ -37,30 +35,23 @@ registry:
     - KAMAL_REGISTRY_PASSWORD
 
 accessories:
-  mempalace:
-    image: mempalace:latest  # TODO: Confirm image name once available
-    host: <HETZNER_VPS_IP>
-    port: "3100:3100"
-    volumes:
-      - mempalace-data:/data
-
   chromadb:
     image: chromadb/chroma:latest
-    host: <HETZNER_VPS_IP>
+    host: 178.104.179.33
     port: "8001:8000"
     volumes:
       - chroma-data:/chroma/chroma
 
   redis:
     image: redis:7-alpine
-    host: <HETZNER_VPS_IP>
+    host: 178.104.179.33
     port: "6379:6379"
     volumes:
       - redis-data:/data
 
   ollama:
     image: ollama/ollama:latest
-    host: <HETZNER_VPS_IP>
+    host: 178.104.179.33
     port: "11434:11434"
     volumes:
       - ollama-data:/root/.ollama

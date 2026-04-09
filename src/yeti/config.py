@@ -5,6 +5,8 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+if not _ENV_FILE.exists():
+    _ENV_FILE = None
 
 
 class Settings(BaseSettings):

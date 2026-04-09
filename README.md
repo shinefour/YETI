@@ -107,10 +107,79 @@ docker compose up yeti-api redis
 
 ## Production Deployment
 
-YETI uses [Kamal 2](https://kamal-deploy.org/) for zero-downtime deployment to a Hetzner VPS. See `config/deploy.yml` and `design.md` for the full architecture.
+YETI uses [Kamal 2](https://kamal-deploy.org/) for zero-downtime deployment to a Hetzner VPS.
+
+### Prerequisites
+
+**Ruby 3.1+** — Kamal is a Ruby gem.
+```bash
+brew install ruby
+```
+
+Verify the new Ruby is in your path:
+```bash
+ruby --version  # should be 3.1+
+```
+
+If `ruby --version` still shows the system Ruby (2.6), add the Homebrew Ruby to your path:
+```bash
+echo 'export PATH="/usr/local/opt/ruby/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Kamal 2:**
+```bash
+gem install kamal
+kamal version  # should be 2.x
+```
+
+If `kamal` is not found after install, use the full path from `gem environment gemdir`:
+```bash
+$(gem environment gemdir)/bin/kamal version
+```
+
+**GitHub Container Registry token:**
+- Go to https://github.com/settings/tokens
+- Create a classic token with `write:packages` scope
+- Save it for the secrets file below
+
+### Configure Secrets
+
+Create `.kamal/secrets` (not committed to git):
+```
+KAMAL_REGISTRY_USERNAME=<github-username>
+KAMAL_REGISTRY_PASSWORD=<github-pat-token>
+YETI_ANTHROPIC_API_KEY=<your-key>
+YETI_TELEGRAM_BOT_TOKEN=<your-token>
+YETI_TELEGRAM_ALLOWED_CHAT_ID=<your-chat-id>
+```
+
+### Deploy
 
 ```bash
-kamal setup    # first-time server provisioning
-kamal deploy   # build, push, deploy
-kamal rollback # revert to previous version
+# First-time: provisions server, installs Docker, starts accessories
+kamal setup
+
+# Subsequent deploys
+kamal deploy
+
+# Rollback if something breaks
+kamal rollback
+
+# View logs
+kamal app logs
+kamal accessory logs redis
+
+# SSH into app container
+kamal app exec -i bash
 ```
+
+### Server Requirements
+
+- Hetzner CPX31 (4 vCPU, 8 GB RAM) or similar
+- Ubuntu 24.04
+- SSH key access as root
+- Firewall: allow ports 22, 80, 443
+- Domain with A record pointing to the server IP
+
+See `config/deploy.yml` for the full Kamal configuration and `design.md` for architecture details.
