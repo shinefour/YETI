@@ -206,30 +206,68 @@ async def handle_photo(
 
     await update.message.reply_text("Analyzing image...")
 
-    photo = update.message.photo[-1]  # highest resolution
+    photo = update.message.photo[-1]
     file = await photo.get_file()
     image_bytes = await file.download_as_bytearray()
+    caption = update.message.caption or ""
 
-    from yeti.vision.extract import extract_both
+    from yeti.vision.extract import extract
 
-    results = await extract_both(bytes(image_bytes))
+    result = await extract(bytes(image_bytes), caption)
 
     lines = []
-    for method, result in results.items():
-        label = method.replace("_", " + ").upper()
-        lines.append(f"--- {label} ---")
-        if "error" in result:
-            lines.append(f"Error: {result['error']}")
-        data = result.get("structured")
-        if data:
-            lines.append(json.dumps(data, indent=2))
-        raw = result.get("raw_text", "")
-        if raw:
-            lines.append(f"\nRaw OCR:\n{raw[:500]}")
-        lines.append("")
+    method = result.get("method", "unknown")
+    lines.append(f"Method: {method}")
+
+    if "error" in result:
+        lines.append(f"Error: {result['error']}")
+
+    data = result.get("structured")
+    if data:
+        lines.append(json.dumps(data, indent=2))
+
+    raw = result.get("raw_text", "")
+    if raw:
+        lines.append(f"\nRaw OCR:\n{raw[:500]}")
+
+    # Store in MemPalace if we got structured data
+    if data and data.get("type") == "business_card":
+        try:
+            from yeti.memory.client import MemPalaceClient
+
+            mem = MemPalaceClient()
+            content = json.dumps(data, indent=2)
+            if caption:
+                content = f"Context: {caption}\n\n{content}"
+            await mem.store(
+                content=content,
+                wing="people",
+                room="contacts",
+                source="telegram-photo",
+            )
+            lines.append("\nStored in memory (people/contacts)")
+        except Exception:
+            logger.exception("Failed to store in memory")
+
+    if data and data.get("type") == "receipt":
+        try:
+            from yeti.memory.client import MemPalaceClient
+
+            mem = MemPalaceClient()
+            content = json.dumps(data, indent=2)
+            if caption:
+                content = f"Context: {caption}\n\n{content}"
+            await mem.store(
+                content=content,
+                wing="finance",
+                room="receipts",
+                source="telegram-photo",
+            )
+            lines.append("\nStored in memory (finance/receipts)")
+        except Exception:
+            logger.exception("Failed to store in memory")
 
     response = "\n".join(lines)
-    # Telegram has a 4096 char limit
     if len(response) > 4000:
         response = response[:4000] + "\n...(truncated)"
 

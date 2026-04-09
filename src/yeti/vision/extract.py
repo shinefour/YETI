@@ -1,8 +1,7 @@
 """Image extraction — Tesseract OCR + Ollama structuring.
 
-Two approaches tested side by side:
-1. Tesseract (OCR) → Ollama (structure into JSON)
-2. Ollama LLaVA (vision model does both OCR + structure)
+Primary: Tesseract (OCR) → Ollama (structure into JSON)
+Fallback: LLaVA vision model (when Tesseract gets nothing)
 """
 
 import base64
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 STRUCTURE_PROMPT = """\
 Extract structured data from the following text.
 Determine if this is a business card, receipt, or other document.
-
+{context}
 For a business card, extract:
 {{"type": "business_card", "name": "", "company": "", "title": "", \
 "phone": "", "email": "", "address": "", "website": "", "notes": ""}}
@@ -33,19 +32,19 @@ For a receipt, extract:
 For anything else:
 {{"type": "document", "summary": "", "key_info": {{}}}}
 
+Only include data present in the text. Leave fields empty if unknown.
 Return ONLY valid JSON, no other text.
 
 Text to extract from:
 {text}"""
 
 LLAVA_PROMPT = """\
-Read ALL text visible in this image. The image may be rotated — \
-read it in whatever orientation makes the text readable.
+Read ALL text visible in this image.
 
 IMPORTANT: Only extract information you can actually read in the \
 image. Never invent or guess data. Leave fields empty ("") if you \
 cannot read them.
-
+{context}
 First determine what this is: a business card, receipt, or other \
 document.
 
@@ -64,56 +63,82 @@ Return ONLY valid JSON. Do not invent any data."""
 
 
 def _ocr_with_preprocessing(image: Image.Image) -> str:
-    """Run Tesseract with multiple preprocessing and rotation strategies."""
+    """Run Tesseract with multiple preprocessing strategies."""
     import pytesseract
     from PIL import ImageEnhance, ImageFilter
 
+    gray = image.convert("L")
     best = ""
 
-    # Try 0° and 90° rotations
-    rotations = [image, image.rotate(90, expand=True)]
+    # Strategy 1: binary threshold
+    threshold = gray.point(lambda p: 255 if p > 128 else 0)
+    text = pytesseract.image_to_string(
+        threshold, lang="eng+deu", config="--psm 6"
+    ).strip()
+    if len(text) > len(best):
+        best = text
 
-    for rotated in rotations:
-        gray = rotated.convert("L")
+    # Strategy 2: contrast + sharpen, PSM 6
+    enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
+    sharp = enhanced.filter(ImageFilter.SHARPEN)
+    text = pytesseract.image_to_string(
+        sharp, lang="eng+deu", config="--psm 6"
+    ).strip()
+    if len(text) > len(best):
+        best = text
 
-        # Strategy 1: binary threshold
-        threshold = gray.point(lambda p: 255 if p > 128 else 0)
-        text = pytesseract.image_to_string(
-            threshold, lang="eng+deu", config="--psm 6"
-        ).strip()
-        if len(text) > len(best):
-            best = text
-
-        # Strategy 2: contrast + sharpen, PSM 6
-        enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
-        sharp = enhanced.filter(ImageFilter.SHARPEN)
-        text = pytesseract.image_to_string(
-            sharp, lang="eng+deu", config="--psm 6"
-        ).strip()
-        if len(text) > len(best):
-            best = text
-
-        # Strategy 3: default PSM 3
-        text = pytesseract.image_to_string(
-            sharp, lang="eng+deu", config="--psm 3"
-        ).strip()
-        if len(text) > len(best):
-            best = text
+    # Strategy 3: default PSM 3
+    text = pytesseract.image_to_string(
+        sharp, lang="eng+deu", config="--psm 3"
+    ).strip()
+    if len(text) > len(best):
+        best = text
 
     return best
 
 
+def _find_best_orientation(
+    image: Image.Image,
+) -> Image.Image:
+    """Try 0°, 90° CW, 90° CCW — return best orientation."""
+    import pytesseract
+
+    best_len = 0
+    best_img = image
+
+    for angle in [0, 90, 270]:
+        rotated = (
+            image.rotate(angle, expand=True) if angle else image
+        )
+        gray = rotated.convert("L")
+        threshold = gray.point(lambda p: 255 if p > 128 else 0)
+        text = pytesseract.image_to_string(
+            threshold, config="--psm 6"
+        ).strip()
+        if len(text) > best_len:
+            best_len = len(text)
+            best_img = rotated
+            if angle:
+                logger.info(
+                    "Best orientation: %d° (%d chars)",
+                    angle,
+                    len(text),
+                )
+
+    return best_img
+
+
 async def extract_tesseract_ollama(
-    image_bytes: bytes,
+    image: Image.Image,
+    caption: str = "",
 ) -> dict:
-    """Approach 1: Tesseract OCR → Ollama structuring."""
+    """Primary: Tesseract OCR → Ollama structuring."""
     try:
         import pytesseract  # noqa: F401
     except ImportError:
         return {"error": "pytesseract not installed"}
 
     try:
-        image = Image.open(BytesIO(image_bytes))
         raw_text = _ocr_with_preprocessing(image)
     except Exception as e:
         return {"error": f"OCR failed: {e}"}
@@ -121,7 +146,13 @@ async def extract_tesseract_ollama(
     if not raw_text.strip():
         return {"error": "No text detected in image"}
 
-    prompt = STRUCTURE_PROMPT.format(text=raw_text)
+    context = ""
+    if caption:
+        context = f"\nAdditional context: {caption}\n"
+
+    prompt = STRUCTURE_PROMPT.format(
+        text=raw_text, context=context
+    )
 
     try:
         async with httpx.AsyncClient(timeout=120) as client:
@@ -135,7 +166,9 @@ async def extract_tesseract_ollama(
             )
             if not r.is_success:
                 body = r.text[:200]
-                logger.error("Ollama error %s: %s", r.status_code, body)
+                logger.error(
+                    "Ollama error %s: %s", r.status_code, body
+                )
                 return {
                     "method": "tesseract+ollama",
                     "raw_text": raw_text,
@@ -161,10 +194,19 @@ async def extract_tesseract_ollama(
 
 
 async def extract_llava(
-    image_bytes: bytes,
+    image: Image.Image,
+    caption: str = "",
 ) -> dict:
-    """Approach 2: Ollama LLaVA vision model (OCR + structure)."""
-    image_b64 = base64.b64encode(image_bytes).decode()
+    """Fallback: LLaVA vision model (when Tesseract gets nothing)."""
+    buf = BytesIO()
+    image.save(buf, format="JPEG")
+    image_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    context = ""
+    if caption:
+        context = f"\nAdditional context: {caption}\n"
+
+    prompt = LLAVA_PROMPT.format(context=context)
 
     try:
         async with httpx.AsyncClient(timeout=120) as client:
@@ -172,7 +214,7 @@ async def extract_llava(
                 f"{settings.ollama_base_url}/api/generate",
                 json={
                     "model": "llava",
-                    "prompt": LLAVA_PROMPT,
+                    "prompt": prompt,
                     "images": [image_b64],
                     "stream": False,
                 },
@@ -193,66 +235,39 @@ async def extract_llava(
         }
 
 
-def _find_best_rotation(image_bytes: bytes) -> bytes:
-    """Try 0° and 90° rotation, return whichever Tesseract reads better."""
-    import pytesseract
-
-    image = Image.open(BytesIO(image_bytes))
-    best_len = 0
-    best_angle = 0
-
-    for angle in [0, 90]:
-        rotated = image.rotate(angle, expand=True) if angle else image
-        gray = rotated.convert("L")
-        threshold = gray.point(lambda p: 255 if p > 128 else 0)
-        text = pytesseract.image_to_string(
-            threshold, config="--psm 6"
-        ).strip()
-        if len(text) > best_len:
-            best_len = len(text)
-            best_angle = angle
-
-    if best_angle != 0:
-        logger.info("Image rotated %d° for better OCR", best_angle)
-        rotated = image.rotate(best_angle, expand=True)
-        buf = BytesIO()
-        rotated.save(buf, format="JPEG")
-        return buf.getvalue()
-
-    return image_bytes
-
-
-async def extract_both(
+async def extract(
     image_bytes: bytes,
+    caption: str = "",
 ) -> dict:
-    """Detect best rotation, then run both approaches."""
-    import asyncio
+    """Extract data from an image.
 
-    # Find best rotation first (quick Tesseract check)
+    1. Detect best rotation
+    2. Try Tesseract + Ollama (primary)
+    3. Fall back to LLaVA if Tesseract gets nothing
+    """
+    image = Image.open(BytesIO(image_bytes))
+
+    # Find best orientation
     try:
-        oriented = _find_best_rotation(image_bytes)
+        oriented = _find_best_orientation(image)
     except Exception:
         logger.exception("Rotation detection failed")
-        oriented = image_bytes
+        oriented = image
 
-    results = await asyncio.gather(
-        extract_tesseract_ollama(oriented),
-        extract_llava(oriented),
-        return_exceptions=True,
+    # Primary: Tesseract + Ollama
+    result = await extract_tesseract_ollama(
+        oriented, caption
     )
 
-    return {
-        "tesseract_ollama": (
-            results[0]
-            if not isinstance(results[0], Exception)
-            else {"error": str(results[0])}
-        ),
-        "llava": (
-            results[1]
-            if not isinstance(results[1], Exception)
-            else {"error": str(results[1])}
-        ),
-    }
+    # If Tesseract got text, return it
+    if result.get("raw_text"):
+        return result
+
+    # Fallback: LLaVA
+    logger.info(
+        "Tesseract found nothing, falling back to LLaVA"
+    )
+    return await extract_llava(oriented, caption)
 
 
 def _parse_json_response(text: str) -> dict | None:
