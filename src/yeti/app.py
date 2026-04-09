@@ -130,7 +130,6 @@ async def status():
 
     # Check accessory services via HTTP
     for name, url in [
-        ("mempalace", settings.mempalace_url),
         ("chromadb", f"{settings.chromadb_url}/api/v2/heartbeat"),
         ("ollama", f"{settings.ollama_base_url}/api/tags"),
     ]:
