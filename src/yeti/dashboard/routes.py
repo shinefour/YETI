@@ -91,19 +91,22 @@ async def activity_page(request: Request):
 
 @router.get("/partials/services", response_class=HTMLResponse)
 async def services_partial():
-    services = {
-        "API": "up",
-        "Redis": "unknown",
-        "MemPalace": "unknown",
-        "ChromaDB": "unknown",
-        "Ollama": "unknown",
-    }
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://localhost:8000/api/status")
+            data = r.json()
+            services = data.get("services", {})
+    except Exception:
+        services = {"api": "unknown"}
+
     rows = []
     for name, state in services.items():
         badge = _badge_for(state)
         rows.append(
             f'<div class="status-row">'
-            f"<span>{name}</span>{badge}</div>"
+            f"<span>{name.title()}</span>{badge}</div>"
         )
     return "\n".join(rows)
 
@@ -112,20 +115,22 @@ async def services_partial():
     "/partials/integrations", response_class=HTMLResponse
 )
 async def integrations_partial():
-    integrations = {
-        "Teams": "not_configured",
-        "Slack": "not_configured",
-        "Jira": "not_configured",
-        "Notion": "not_configured",
-        "Calendar": "not_configured",
-        "Email": "not_configured",
-    }
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://localhost:8000/api/status")
+            data = r.json()
+            integrations = data.get("integrations", {})
+    except Exception:
+        integrations = {}
+
     rows = []
     for name, state in integrations.items():
         badge = _badge_for(state)
         rows.append(
             f'<div class="status-row">'
-            f"<span>{name}</span>{badge}</div>"
+            f"<span>{name.title()}</span>{badge}</div>"
         )
     return "\n".join(rows)
 

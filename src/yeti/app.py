@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+import httpx as _httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
@@ -11,6 +12,8 @@ from yeti.agents.chat import chat as chat_agent
 from yeti.api.actions import router as actions_router
 from yeti.config import settings
 from yeti.dashboard.routes import router as dashboard_router
+from yeti.integrations.jira import JiraAdapter
+from yeti.integrations.notion import NotionAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -42,27 +45,60 @@ async def health():
 @app.get("/api/status")
 async def status():
     """System status — integration health, service states."""
+    services = {"api": "up"}
+
+    # Check Redis
+    try:
+        import redis as _redis
+
+        r = _redis.from_url(settings.redis_url, socket_timeout=2)
+        r.ping()
+        services["redis"] = "up"
+    except Exception:
+        services["redis"] = "down"
+
+    # Check accessory services via HTTP
+    for name, url in [
+        ("mempalace", settings.mempalace_url),
+        ("chromadb", f"{settings.chromadb_url}/api/v2/heartbeat"),
+        ("ollama", f"{settings.ollama_base_url}/api/tags"),
+    ]:
+        try:
+            async with _httpx.AsyncClient(timeout=2) as c:
+                r = await c.get(url)
+                services[name] = "up" if r.is_success else "down"
+        except Exception:
+            services[name] = "down"
+
+    # Check integrations
+    integrations = {}
+    jira = JiraAdapter()
+    integrations["jira"] = (
+        "connected" if await jira.health() else (
+            "not_configured"
+            if not settings.jira_url
+            else "error"
+        )
+    )
+    notion = NotionAdapter()
+    integrations["notion"] = (
+        "connected" if await notion.health() else (
+            "not_configured"
+            if not settings.notion_api_key
+            else "error"
+        )
+    )
+    for name in ["teams", "slack", "calendar", "email"]:
+        integrations[name] = "not_configured"
+
     return JSONResponse(
         {
             "status": "healthy",
             "started_at": getattr(
                 app.state, "started_at", datetime.now(UTC)
             ).isoformat(),
-            "services": {
-                "api": "up",
-                "redis": "unknown",
-                "mempalace": "unknown",
-                "chromadb": "unknown",
-                "ollama": "unknown",
-            },
-            "integrations": {
-                "teams": "not_configured",
-                "slack": "not_configured",
-                "jira": "not_configured",
-                "notion": "not_configured",
-                "calendar": "not_configured",
-                "email": "not_configured",
-            },
+            "services": services,
+            "integrations": integrations,
         },
     )
 

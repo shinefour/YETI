@@ -55,4 +55,4 @@ def test_dashboard_chat_page():
 def test_dashboard_services_partial():
     response = client.get("/dashboard/partials/services")
     assert response.status_code == 200
-    assert "API" in response.text
+    assert "Api" in response.text
