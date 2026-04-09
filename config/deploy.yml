@@ -66,6 +66,7 @@ env:
     YETI_MEMPALACE_URL: http://localhost:3100
     YETI_CHROMADB_URL: http://localhost:8001
   secret:
+    - YETI_DASHBOARD_API_KEY
     - YETI_ANTHROPIC_API_KEY
     - YETI_OPENAI_API_KEY
     - YETI_TELEGRAM_BOT_TOKEN

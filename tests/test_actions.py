@@ -9,9 +9,12 @@ from fastapi.testclient import TestClient
 os.environ["YETI_DB_PATH"] = ":memory:"
 
 from yeti.app import app
+from yeti.config import settings
 from yeti.models.actions import ActionStore
 
 client = TestClient(app)
+_KEY = settings.dashboard_api_key
+_H = {"x-api-key": _KEY} if _KEY else {}
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +29,7 @@ def fresh_db(tmp_path):
 
 def test_create_action():
     response = client.post(
-        "/api/actions",
+        "/api/actions", headers=_H,
         json={"title": "Review PR", "project": "YETI"},
     )
     assert response.status_code == 201
@@ -37,22 +40,22 @@ def test_create_action():
 
 
 def test_list_actions_empty():
-    response = client.get("/api/actions")
+    response = client.get("/api/actions", headers=_H)
     assert response.status_code == 200
     assert response.json() == []
 
 
 def test_list_actions_with_filter():
     client.post(
-        "/api/actions",
+        "/api/actions", headers=_H,
         json={"title": "Task A", "project": "Alpha"},
     )
     client.post(
-        "/api/actions",
+        "/api/actions", headers=_H,
         json={"title": "Task B", "project": "Beta"},
     )
 
-    response = client.get("/api/actions?project=Alpha")
+    response = client.get("/api/actions?project=Alpha", headers=_H)
     items = response.json()
     assert len(items) == 1
     assert items[0]["title"] == "Task A"
@@ -60,28 +63,28 @@ def test_list_actions_with_filter():
 
 def test_get_action():
     create = client.post(
-        "/api/actions", json={"title": "Test item"}
+        "/api/actions", headers=_H, json={"title": "Test item"}
     )
     item_id = create.json()["id"]
 
-    response = client.get(f"/api/actions/{item_id}")
+    response = client.get(f"/api/actions/{item_id}", headers=_H)
     assert response.status_code == 200
     assert response.json()["title"] == "Test item"
 
 
 def test_get_action_not_found():
-    response = client.get("/api/actions/nonexistent")
+    response = client.get("/api/actions/nonexistent", headers=_H)
     assert response.status_code == 404
 
 
 def test_approve_action():
     create = client.post(
-        "/api/actions", json={"title": "Approve me"}
+        "/api/actions", headers=_H, json={"title": "Approve me"}
     )
     item_id = create.json()["id"]
 
     response = client.patch(
-        f"/api/actions/{item_id}/status",
+        f"/api/actions/{item_id}/status", headers=_H,
         json={"status": "active"},
     )
     assert response.status_code == 200
@@ -92,16 +95,16 @@ def test_approve_action():
 
 def test_complete_action():
     create = client.post(
-        "/api/actions", json={"title": "Complete me"}
+        "/api/actions", headers=_H, json={"title": "Complete me"}
     )
     item_id = create.json()["id"]
 
     client.patch(
-        f"/api/actions/{item_id}/status",
+        f"/api/actions/{item_id}/status", headers=_H,
         json={"status": "active"},
     )
     response = client.patch(
-        f"/api/actions/{item_id}/status",
+        f"/api/actions/{item_id}/status", headers=_H,
         json={"status": "completed"},
     )
     assert response.json()["status"] == "completed"
@@ -109,12 +112,12 @@ def test_complete_action():
 
 def test_delete_action():
     create = client.post(
-        "/api/actions", json={"title": "Delete me"}
+        "/api/actions", headers=_H, json={"title": "Delete me"}
     )
     item_id = create.json()["id"]
 
-    response = client.delete(f"/api/actions/{item_id}")
+    response = client.delete(f"/api/actions/{item_id}", headers=_H)
     assert response.status_code == 200
 
-    response = client.get(f"/api/actions/{item_id}")
+    response = client.get(f"/api/actions/{item_id}", headers=_H)
     assert response.status_code == 404

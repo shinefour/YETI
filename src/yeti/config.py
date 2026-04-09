@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
+    dashboard_api_key: str = ""
 
     # --- AI Model Keys ---
     anthropic_api_key: str = ""

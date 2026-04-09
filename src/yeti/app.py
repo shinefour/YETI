@@ -1,12 +1,13 @@
 """YETI FastAPI application."""
 
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import httpx as _httpx
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from yeti.agents.chat import chat as chat_agent
 from yeti.api.actions import router as actions_router
@@ -32,6 +33,74 @@ app = FastAPI(
 )
 app.include_router(actions_router)
 app.include_router(dashboard_router)
+
+# Paths that don't require auth
+_PUBLIC_PATHS = {"/health", "/webhooks"}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Require API key for all routes except health and webhooks."""
+    path = request.url.path
+
+    if not settings.dashboard_api_key:
+        return await call_next(request)
+
+    if path == "/health" or path.startswith("/webhooks"):
+        return await call_next(request)
+
+    # Check cookie (dashboard sessions)
+    session_token = request.cookies.get("yeti_session")
+    if session_token and secrets.compare_digest(
+        session_token, settings.dashboard_api_key
+    ):
+        return await call_next(request)
+
+    # Check header (API clients / CLI)
+    api_key = request.headers.get("x-api-key", "")
+    if api_key and secrets.compare_digest(
+        api_key, settings.dashboard_api_key
+    ):
+        return await call_next(request)
+
+    # Check query param (login redirect)
+    key_param = request.query_params.get("key", "")
+    if key_param and secrets.compare_digest(
+        key_param, settings.dashboard_api_key
+    ):
+        response = RedirectResponse(url="/dashboard")
+        response.set_cookie(
+            "yeti_session",
+            settings.dashboard_api_key,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            max_age=86400 * 30,
+        )
+        return response
+
+    # Login page
+    if path == "/login":
+        return await call_next(request)
+
+    return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/dashboard")
+
+
+@app.get("/login")
+async def login_page():
+    return JSONResponse(
+        {
+            "message": "YETI requires authentication.",
+            "hint": "Append ?key=<your-api-key> or "
+            "send x-api-key header.",
+        },
+        status_code=401,
+    )
 
 
 @app.get("/health")

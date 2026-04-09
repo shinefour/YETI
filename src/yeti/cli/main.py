@@ -20,6 +20,16 @@ def _api_url() -> str:
     return os.environ.get("YETI_API_URL", DEFAULT_API_URL)
 
 
+def _headers() -> dict:
+    """Auth headers for API requests."""
+    import os
+
+    key = os.environ.get("YETI_DASHBOARD_API_KEY", "")
+    if key:
+        return {"x-api-key": key}
+    return {}
+
+
 @app.command()
 def chat(message: str = typer.Argument(None, help="Message to send to YETI")):
     """Chat with YETI. If no message is provided, starts an interactive session."""
@@ -33,7 +43,7 @@ def chat(message: str = typer.Argument(None, help="Message to send to YETI")):
 def status():
     """Show YETI system status."""
     try:
-        response = httpx.get(f"{_api_url()}/api/status", timeout=5)
+        response = httpx.get(f"{_api_url()}/api/status", timeout=5, headers=_headers())
         data = response.json()
 
         table = Table(title="YETI System Status")
@@ -69,7 +79,7 @@ def status():
 def health():
     """Check if YETI is healthy."""
     try:
-        response = httpx.get(f"{_api_url()}/health", timeout=5)
+        response = httpx.get(f"{_api_url()}/health", timeout=5, headers=_headers())
         data = response.json()
         if data.get("status") == "healthy":
             ver = data.get("version", "?")
@@ -100,6 +110,7 @@ def actions(
             f"{_api_url()}/api/actions",
             params=params,
             timeout=5,
+            headers=_headers(),
         )
         items = response.json()
 
@@ -154,6 +165,7 @@ def add_action(
                 "source": source,
             },
             timeout=5,
+            headers=_headers(),
         )
         item = response.json()
         console.print(
@@ -175,6 +187,7 @@ def _send_message(
             f"{_api_url()}/api/chat",
             json={"message": message, "history": history or []},
             timeout=60,
+            headers=_headers(),
         )
         data = response.json()
         if "error" in data:
