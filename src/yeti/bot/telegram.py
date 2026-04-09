@@ -2,11 +2,18 @@
 
 import logging
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 
 from yeti.agents.chat import chat
 from yeti.config import settings
+from yeti.models.actions import ActionItem, ActionStatus, ActionStore
 
 logger = logging.getLogger(__name__)
 
@@ -14,38 +21,171 @@ logger = logging.getLogger(__name__)
 def _is_authorized(update: Update) -> bool:
     """Check if the message is from Daniel's authorized chat ID."""
     if settings.telegram_allowed_chat_id == 0:
-        logger.warning("YETI_TELEGRAM_ALLOWED_CHAT_ID not set — accepting all messages")
+        logger.warning(
+            "YETI_TELEGRAM_ALLOWED_CHAT_ID not set "
+            "— accepting all messages"
+        )
         return True
-    return update.effective_chat.id == settings.telegram_allowed_chat_id
+    chat_id = (
+        update.effective_chat.id if update.effective_chat else 0
+    )
+    return chat_id == settings.telegram_allowed_chat_id
 
 
 async def cmd_start(update: Update, context) -> None:
-    """Handle /start command."""
     if not _is_authorized(update):
         return
     await update.message.reply_text(
-        "YETI is online. Send me a message to get started."
+        "YETI is online. Commands:\n"
+        "/status — system status\n"
+        "/actions — pending action items\n"
+        "/add <title> — create action item\n"
+        "Or just send a message to chat."
     )
 
 
 async def cmd_status(update: Update, context) -> None:
-    """Handle /status command."""
     if not _is_authorized(update):
         return
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://localhost:8000/api/status")
+            data = r.json()
+
+        lines = ["YETI Status\n"]
+        for name, state in data.get("services", {}).items():
+            icon = "+" if state == "up" else "-"
+            lines.append(f"  {icon} {name}: {state}")
+
+        lines.append("")
+        for name, state in data.get("integrations", {}).items():
+            icon = "+" if state == "connected" else "."
+            lines.append(f"  {icon} {name}: {state}")
+
+        await update.message.reply_text("\n".join(lines))
+    except Exception:
+        await update.message.reply_text("Could not reach API.")
+
+
+async def cmd_actions(update: Update, context) -> None:
+    if not _is_authorized(update):
+        return
+
+    store = ActionStore()
+    pending = store.list(status=ActionStatus.PENDING_REVIEW)
+    active = store.list(status=ActionStatus.ACTIVE)
+
+    if not pending and not active:
+        await update.message.reply_text("No action items.")
+        return
+
+    for item in pending:
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "Approve",
+                        callback_data=f"approve:{item.id}",
+                    ),
+                    InlineKeyboardButton(
+                        "Reject",
+                        callback_data=f"reject:{item.id}",
+                    ),
+                ]
+            ]
+        )
+        project = f" [{item.project}]" if item.project else ""
+        await update.message.reply_text(
+            f"PENDING: {item.title}{project}",
+            reply_markup=keyboard,
+        )
+
+    for item in active:
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "Done",
+                        callback_data=f"complete:{item.id}",
+                    ),
+                ]
+            ]
+        )
+        project = f" [{item.project}]" if item.project else ""
+        await update.message.reply_text(
+            f"ACTIVE: {item.title}{project}",
+            reply_markup=keyboard,
+        )
+
+
+async def cmd_add(update: Update, context) -> None:
+    if not _is_authorized(update):
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /add <title>"
+        )
+        return
+
+    title = " ".join(context.args)
+    store = ActionStore()
+    item = store.create(
+        ActionItem(title=title, source="telegram")
+    )
     await update.message.reply_text(
-        "YETI v0.1.0 — System status: healthy\n"
-        "Integrations: not yet configured\n"
-        "Memory: not yet connected"
+        f"Created: {item.title} ({item.id[:8]})"
     )
 
 
-async def handle_message(update: Update, context) -> None:
-    """Handle incoming text messages — route to Chat Agent."""
+async def handle_callback(
+    update: Update, context
+) -> None:
+    """Handle inline keyboard button presses."""
+    query = update.callback_query
+    if not _is_authorized(update):
+        await query.answer("Unauthorized")
+        return
+
+    await query.answer()
+    data = query.data
+    action, item_id = data.split(":", 1)
+
+    store = ActionStore()
+    status_map = {
+        "approve": ActionStatus.ACTIVE,
+        "reject": ActionStatus.CANCELLED,
+        "complete": ActionStatus.COMPLETED,
+    }
+
+    new_status = status_map.get(action)
+    if not new_status:
+        return
+
+    item = store.update_status(item_id, new_status)
+    if item:
+        await query.edit_message_text(
+            f"{new_status.value.upper()}: {item.title}"
+        )
+    else:
+        await query.edit_message_text("Item not found.")
+
+
+async def handle_message(
+    update: Update, context
+) -> None:
     if not _is_authorized(update):
         return
 
     user_message = update.message.text
-    logger.info("Message from %s: %s", update.effective_chat.id, user_message[:50])
+    logger.info(
+        "Message from %s: %s",
+        update.effective_chat.id,
+        user_message[:50],
+    )
 
     try:
         response = await chat(user_message)
@@ -53,37 +193,44 @@ async def handle_message(update: Update, context) -> None:
     except Exception:
         logger.exception("Chat agent error")
         await update.message.reply_text(
-            "Something went wrong processing your message. Check the logs."
+            "Something went wrong. Check logs."
         )
 
 
-async def handle_photo(update: Update, context) -> None:
-    """Handle incoming photos — route to vision model."""
+async def handle_photo(
+    update: Update, context
+) -> None:
     if not _is_authorized(update):
         return
-
-    # TODO: Forward to vision model for analysis
     await update.message.reply_text(
-        "Image analysis is not yet implemented. Coming soon!"
+        "Image analysis coming soon."
     )
 
 
 def main():
     """Start the Telegram bot."""
     if not settings.telegram_bot_token:
-        logger.error("YETI_TELEGRAM_BOT_TOKEN not set — cannot start Telegram bot")
+        logger.error(
+            "YETI_TELEGRAM_BOT_TOKEN not set — "
+            "cannot start Telegram bot"
+        )
         return
 
-    application = Application.builder().token(settings.telegram_bot_token).build()
+    app = Application.builder().token(
+        settings.telegram_bot_token
+    ).build()
 
-    application.add_handler(CommandHandler("start", cmd_start))
-    application.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("actions", cmd_actions))
+    app.add_handler(CommandHandler("add", cmd_add))
+    app.add_handler(CallbackQueryHandler(handle_callback))
     text_filter = filters.TEXT & ~filters.COMMAND
-    application.add_handler(MessageHandler(text_filter, handle_message))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(text_filter, handle_message))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     logger.info("YETI Telegram bot starting...")
-    application.run_polling()
+    app.run_polling()
 
 
 if __name__ == "__main__":

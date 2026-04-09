@@ -1,9 +1,15 @@
-"""Celery worker configuration for background agents and scheduled jobs."""
+"""Celery worker — background agents and scheduled jobs."""
+
+import asyncio
+import logging
+from datetime import UTC, datetime, timedelta
 
 from celery import Celery
 from celery.schedules import crontab
 
 from yeti.config import settings
+
+logger = logging.getLogger(__name__)
 
 celery_app = Celery("yeti", broker=settings.redis_url)
 
@@ -14,53 +20,134 @@ celery_app.conf.beat_schedule = {
     },
     "jira-sync": {
         "task": "yeti.worker.sync_jira",
-        "schedule": 900.0,  # every 15 minutes
+        "schedule": 900.0,
     },
     "notion-sync": {
         "task": "yeti.worker.sync_notion",
-        "schedule": 300.0,  # every 5 minutes
-    },
-    "teams-digest": {
-        "task": "yeti.worker.digest_teams",
-        "schedule": 1800.0,  # every 30 minutes
-    },
-    "slack-digest": {
-        "task": "yeti.worker.digest_slack",
-        "schedule": 1800.0,  # every 30 minutes
+        "schedule": 300.0,
     },
 }
 
 
+def _run_async(coro):
+    """Run an async function from sync Celery task."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+async def _send_telegram(message: str):
+    """Send a message to Daniel via Telegram."""
+    if not settings.telegram_bot_token:
+        logger.warning("No Telegram token — skipping notification")
+        return
+    if not settings.telegram_allowed_chat_id:
+        logger.warning("No Telegram chat ID — skipping notification")
+        return
+
+    import httpx
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{settings.telegram_bot_token}/sendMessage"
+    )
+    async with httpx.AsyncClient(timeout=10) as client:
+        await client.post(
+            url,
+            json={
+                "chat_id": settings.telegram_allowed_chat_id,
+                "text": message,
+                "parse_mode": "Markdown",
+            },
+        )
+
+
 @celery_app.task
 def morning_briefing():
-    """Compile calendar, action items, updates and push to Telegram."""
-    # TODO: Implement
-    pass
+    """Compile daily briefing and push to Telegram."""
+    _run_async(_morning_briefing_async())
+
+
+async def _morning_briefing_async():
+    from yeti.models.actions import ActionStatus, ActionStore
+
+    lines = ["*YETI Morning Briefing*\n"]
+
+    # Action items summary
+    store = ActionStore()
+    pending = store.list(status=ActionStatus.PENDING_REVIEW)
+    active = store.list(status=ActionStatus.ACTIVE)
+
+    if pending:
+        lines.append(f"*Pending review:* {len(pending)}")
+        for item in pending[:5]:
+            lines.append(f"  - {item.title}")
+    if active:
+        lines.append(f"\n*Active items:* {len(active)}")
+        for item in active[:5]:
+            lines.append(f"  - {item.title}")
+
+    # Jira updates
+    if settings.jira_url and settings.jira_api_token:
+        try:
+            from yeti.integrations.jira import JiraAdapter
+
+            jira = JiraAdapter()
+            since = datetime.now(UTC) - timedelta(hours=24)
+            events = await jira.pull(since)
+            if events:
+                lines.append(f"\n*Jira updates:* {len(events)}")
+                for e in events[:5]:
+                    status = e.metadata.get("status", "")
+                    lines.append(f"  - {e.title} [{status}]")
+        except Exception:
+            logger.exception("Jira pull failed in briefing")
+
+    if not pending and not active:
+        lines.append("No action items. Clean slate.")
+
+    await _send_telegram("\n".join(lines))
 
 
 @celery_app.task
 def sync_jira():
-    """Pull new/updated Jira issues into the knowledge base."""
-    # TODO: Implement
-    pass
+    """Pull recent Jira updates."""
+    if not settings.jira_url or not settings.jira_api_token:
+        return
+    _run_async(_sync_jira_async())
+
+
+async def _sync_jira_async():
+    from yeti.integrations.jira import JiraAdapter
+
+    jira = JiraAdapter()
+    since = datetime.now(UTC) - timedelta(minutes=15)
+    try:
+        events = await jira.pull(since)
+        logger.info("Jira sync: %d events", len(events))
+        # TODO: store events in MemPalace once connected
+    except Exception:
+        logger.exception("Jira sync failed")
 
 
 @celery_app.task
 def sync_notion():
-    """Poll Notion for page changes and index into memory."""
-    # TODO: Implement
-    pass
+    """Poll Notion for page changes."""
+    if not settings.notion_api_key:
+        return
+    _run_async(_sync_notion_async())
 
 
-@celery_app.task
-def digest_teams():
-    """Summarize unread Teams messages/mentions."""
-    # TODO: Implement
-    pass
+async def _sync_notion_async():
+    from yeti.integrations.notion import NotionAdapter
 
-
-@celery_app.task
-def digest_slack():
-    """Summarize unread Slack messages/mentions."""
-    # TODO: Implement
-    pass
+    notion = NotionAdapter()
+    since = datetime.now(UTC) - timedelta(minutes=5)
+    try:
+        events = await notion.pull(since)
+        logger.info("Notion sync: %d events", len(events))
+        # TODO: store events in MemPalace once connected
+    except Exception:
+        logger.exception("Notion sync failed")

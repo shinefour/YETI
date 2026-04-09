@@ -1,4 +1,4 @@
-# Local development only — production uses Kamal
+# Local development — production uses Kamal
 services:
   yeti-api:
     build: .
@@ -6,11 +6,55 @@ services:
       - "8000:8000"
     volumes:
       - ./src:/app/src
+      - yeti-data:/app/data
     env_file: .env
     depends_on:
       - redis
+    command: uvicorn yeti.app:app --host 0.0.0.0 --port 8000 --reload
+
+  yeti-worker:
+    build: .
+    volumes:
+      - ./src:/app/src
+      - yeti-data:/app/data
+    env_file: .env
+    depends_on:
+      - redis
+    command: celery -A yeti.worker worker --loglevel=info
+
+  yeti-scheduler:
+    build: .
+    volumes:
+      - ./src:/app/src
+    env_file: .env
+    depends_on:
+      - redis
+    command: celery -A yeti.worker beat --loglevel=info
+
+  yeti-telegram:
+    build: .
+    volumes:
+      - ./src:/app/src
+    env_file: .env
+    depends_on:
+      - yeti-api
+    command: python -m yeti.bot.telegram
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+volumes:
+  yeti-data:
+  redis-data:
+  ollama-data:
