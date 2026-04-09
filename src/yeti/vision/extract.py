@@ -65,34 +65,36 @@ Return ONLY valid JSON. Do not invent any data."""
 def _ocr_with_preprocessing(image: Image.Image) -> str:
     """Run Tesseract with multiple preprocessing strategies."""
     import pytesseract
-    from PIL import ImageEnhance, ImageFilter
+    from PIL import ImageEnhance, ImageFilter, ImageOps
 
     gray = image.convert("L")
     best = ""
 
-    # Strategy 1: binary threshold
-    threshold = gray.point(lambda p: 255 if p > 128 else 0)
-    text = pytesseract.image_to_string(
-        threshold, lang="eng+deu", config="--psm 6"
-    ).strip()
-    if len(text) > len(best):
-        best = text
+    def _try(img, config="--psm 6"):
+        nonlocal best
+        text = pytesseract.image_to_string(
+            img, lang="eng+deu", config=config
+        ).strip()
+        if len(text) > len(best):
+            best = text
 
-    # Strategy 2: contrast + sharpen, PSM 6
+    # Strategy 1: binary threshold (white backgrounds)
+    _try(gray.point(lambda p: 255 if p > 128 else 0))
+
+    # Strategy 2: low threshold (dark backgrounds)
+    _try(gray.point(lambda p: 255 if p > 70 else 0))
+
+    # Strategy 3: inverted + high threshold (light text on dark)
+    inverted = ImageOps.invert(gray)
+    _try(inverted.point(lambda p: 255 if p > 180 else 0))
+
+    # Strategy 4: contrast + sharpen, PSM 6
     enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
     sharp = enhanced.filter(ImageFilter.SHARPEN)
-    text = pytesseract.image_to_string(
-        sharp, lang="eng+deu", config="--psm 6"
-    ).strip()
-    if len(text) > len(best):
-        best = text
+    _try(sharp)
 
-    # Strategy 3: default PSM 3
-    text = pytesseract.image_to_string(
-        sharp, lang="eng+deu", config="--psm 3"
-    ).strip()
-    if len(text) > len(best):
-        best = text
+    # Strategy 5: contrast + sharpen, PSM 3
+    _try(sharp, config="--psm 3")
 
     return best
 
