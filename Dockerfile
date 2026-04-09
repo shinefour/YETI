@@ -17,6 +17,9 @@ COPY src/ src/
 # Install the package in editable mode for development
 RUN pip install --no-cache-dir -e .
 
+# Initialize mempalace data directory
+RUN mkdir -p /data/mempalace
+
 EXPOSE 8000
 
 # Default: run the API server
