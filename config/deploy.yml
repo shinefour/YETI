@@ -1,6 +1,6 @@
 # Kamal 2 deployment configuration for YETI
 service: yeti
-image: yeti
+image: shinefour/yeti
 
 servers:
   web:
