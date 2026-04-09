@@ -61,10 +61,10 @@ accessories:
 
 env:
   clear:
-    YETI_OLLAMA_BASE_URL: http://localhost:11434
-    YETI_REDIS_URL: redis://localhost:6379/0
+    YETI_OLLAMA_BASE_URL: http://yeti-ollama:11434
+    YETI_REDIS_URL: redis://yeti-redis:6379/0
     YETI_MEMPALACE_URL: http://localhost:3100
-    YETI_CHROMADB_URL: http://localhost:8001
+    YETI_CHROMADB_URL: http://yeti-chromadb:8000
   secret:
     - YETI_DASHBOARD_API_KEY
     - YETI_ANTHROPIC_API_KEY
