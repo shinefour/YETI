@@ -68,10 +68,18 @@ def _ocr_with_preprocessing(image: Image.Image) -> str:
     import pytesseract
     from PIL import ImageEnhance, ImageFilter
 
+    gray = image.convert("L")
     best = ""
 
-    # Strategy 1: grayscale + contrast + sharpen, PSM 6
-    gray = image.convert("L")
+    # Strategy 1: binary threshold (best for clean backgrounds)
+    threshold = gray.point(lambda p: 255 if p > 128 else 0)
+    text = pytesseract.image_to_string(
+        threshold, lang="eng+deu", config="--psm 6"
+    ).strip()
+    if len(text) > len(best):
+        best = text
+
+    # Strategy 2: contrast + sharpen, PSM 6 (best for dark backgrounds)
     enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
     sharp = enhanced.filter(ImageFilter.SHARPEN)
     text = pytesseract.image_to_string(
@@ -80,16 +88,9 @@ def _ocr_with_preprocessing(image: Image.Image) -> str:
     if len(text) > len(best):
         best = text
 
-    # Strategy 2: default PSM 3
+    # Strategy 3: default PSM 3
     text = pytesseract.image_to_string(
         sharp, lang="eng+deu", config="--psm 3"
-    ).strip()
-    if len(text) > len(best):
-        best = text
-
-    # Strategy 3: original image, PSM 6
-    text = pytesseract.image_to_string(
-        image, lang="eng+deu", config="--psm 6"
     ).strip()
     if len(text) > len(best):
         best = text
