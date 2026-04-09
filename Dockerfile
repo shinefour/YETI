@@ -17,10 +17,6 @@ COPY src/ src/
 # Install the package in editable mode for development
 RUN pip install --no-cache-dir -e .
 
-# Health check for kamal-proxy
-HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
 EXPOSE 8000
 
 # Default: run the API server
