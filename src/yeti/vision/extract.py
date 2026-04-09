@@ -63,20 +63,52 @@ For anything else, return:
 Return ONLY valid JSON. Do not invent any data."""
 
 
+def _ocr_with_preprocessing(image: Image.Image) -> str:
+    """Run Tesseract with multiple preprocessing strategies."""
+    import pytesseract
+    from PIL import ImageEnhance, ImageFilter
+
+    best = ""
+
+    # Strategy 1: grayscale + contrast + sharpen, PSM 6
+    gray = image.convert("L")
+    enhanced = ImageEnhance.Contrast(gray).enhance(2.0)
+    sharp = enhanced.filter(ImageFilter.SHARPEN)
+    text = pytesseract.image_to_string(
+        sharp, lang="eng+deu", config="--psm 6"
+    ).strip()
+    if len(text) > len(best):
+        best = text
+
+    # Strategy 2: default PSM 3
+    text = pytesseract.image_to_string(
+        sharp, lang="eng+deu", config="--psm 3"
+    ).strip()
+    if len(text) > len(best):
+        best = text
+
+    # Strategy 3: original image, PSM 6
+    text = pytesseract.image_to_string(
+        image, lang="eng+deu", config="--psm 6"
+    ).strip()
+    if len(text) > len(best):
+        best = text
+
+    return best
+
+
 async def extract_tesseract_ollama(
     image_bytes: bytes,
 ) -> dict:
     """Approach 1: Tesseract OCR → Ollama structuring."""
     try:
-        import pytesseract
+        import pytesseract  # noqa: F401
     except ImportError:
         return {"error": "pytesseract not installed"}
 
     try:
         image = Image.open(BytesIO(image_bytes))
-        raw_text = pytesseract.image_to_string(
-            image, lang="eng+deu"
-        )
+        raw_text = _ocr_with_preprocessing(image)
     except Exception as e:
         return {"error": f"OCR failed: {e}"}
 
