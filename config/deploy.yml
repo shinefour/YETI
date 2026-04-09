@@ -1,0 +1,86 @@
+# Kamal 2 deployment configuration for YETI
+# See: https://kamal-deploy.org/docs/configuration/
+
+service: yeti
+image: yeti
+
+servers:
+  web:
+    hosts:
+      - <HETZNER_VPS_IP>  # TODO: Replace with actual IP
+  worker:
+    hosts:
+      - <HETZNER_VPS_IP>
+    cmd: celery -A yeti.worker worker --loglevel=info
+  scheduler:
+    hosts:
+      - <HETZNER_VPS_IP>
+    cmd: celery -A yeti.worker beat --loglevel=info
+  telegram:
+    hosts:
+      - <HETZNER_VPS_IP>
+    cmd: python -m yeti.bot.telegram
+
+proxy:
+  host: <YETI_DOMAIN>  # TODO: Replace with actual domain
+  ssl: true
+  app_port: 8000
+  healthcheck:
+    path: /health
+    interval: 5
+
+registry:
+  server: ghcr.io
+  username:
+    - KAMAL_REGISTRY_USERNAME
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+accessories:
+  mempalace:
+    image: mempalace:latest  # TODO: Confirm image name once available
+    host: <HETZNER_VPS_IP>
+    port: "3100:3100"
+    volumes:
+      - mempalace-data:/data
+
+  chromadb:
+    image: chromadb/chroma:latest
+    host: <HETZNER_VPS_IP>
+    port: "8001:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+
+  redis:
+    image: redis:7-alpine
+    host: <HETZNER_VPS_IP>
+    port: "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    host: <HETZNER_VPS_IP>
+    port: "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+env:
+  clear:
+    YETI_OLLAMA_BASE_URL: http://localhost:11434
+    YETI_REDIS_URL: redis://localhost:6379/0
+    YETI_MEMPALACE_URL: http://localhost:3100
+    YETI_CHROMADB_URL: http://localhost:8001
+  secret:
+    - YETI_ANTHROPIC_API_KEY
+    - YETI_OPENAI_API_KEY
+    - YETI_TELEGRAM_BOT_TOKEN
+    - YETI_TELEGRAM_ALLOWED_CHAT_ID
+    - YETI_MICROSOFT_CLIENT_ID
+    - YETI_MICROSOFT_CLIENT_SECRET
+    - YETI_MICROSOFT_TENANT_ID
+    - YETI_JIRA_URL
+    - YETI_JIRA_EMAIL
+    - YETI_JIRA_API_TOKEN
+    - YETI_NOTION_API_KEY
+    - YETI_SLACK_BOT_TOKEN
