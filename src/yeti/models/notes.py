@@ -13,7 +13,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-DB_PATH = Path("data/yeti.db")
+from yeti.config import settings
+
+DB_PATH = Path(settings.db_path)
 
 
 class NoteSource(enum.StrEnum):

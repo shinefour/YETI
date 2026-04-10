@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     dashboard_api_key: str = ""
+    db_path: str = "data/yeti.db"
 
     # --- AI Model Keys ---
     anthropic_api_key: str = ""

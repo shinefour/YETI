@@ -1,28 +1,102 @@
 {% extends "base.html" %}
-{% block title %}Chat{% endblock %}
+{% block title %}Home{% endblock %}
 {% block content %}
-<div class="chat-page" id="chat-container">
-    <div id="inbox-tile-container"
-         hx-get="/dashboard/partials/inbox-tile"
-         hx-trigger="load, every 30s"
-         hx-swap="innerHTML">
+<div class="home-layout">
+    <div class="home-tiles">
+        <h1>Control Center</h1>
+
+        <div class="tile-grid"
+             id="home-tiles"
+             hx-get="/dashboard/partials/home-tiles"
+             hx-trigger="load, refresh from:body"
+             hx-swap="innerHTML">
+        </div>
     </div>
 
-    <div class="chat-messages" id="messages"></div>
-    <div class="chat-thinking" id="thinking">
-        <span>YETI is thinking...</span>
-    </div>
-    <form class="chat-input" id="chat-form"
-          hx-post="/dashboard/partials/chat"
-          hx-target="#messages" hx-swap="beforeend"
-          hx-indicator="#chat-container"
-          hx-on::after-request="this.reset();
-            document.getElementById('messages').scrollTop =
-            document.getElementById('messages').scrollHeight">
-        <input type="text" name="message"
-               placeholder="Ask YETI something..."
-               autocomplete="off" autofocus>
-        <button type="submit">Send</button>
-    </form>
+    <aside class="home-chat">
+        <div class="home-chat-header">Chat with YETI</div>
+        <div class="home-chat-messages" id="messages"></div>
+        <form class="home-chat-input" id="chat-form"
+              hx-post="/dashboard/partials/chat"
+              hx-target="#messages" hx-swap="beforeend"
+              hx-on::after-request="this.reset();
+                document.getElementById('messages').scrollTop =
+                document.getElementById('messages').scrollHeight">
+            <input type="text" name="message"
+                   placeholder="Ask YETI..."
+                   autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </aside>
 </div>
+
+<!-- Note capture modal -->
+<div class="modal-backdrop" id="note-modal"
+     onclick="if(event.target===this)closeNoteModal()">
+    <div class="modal">
+        <h2>Capture Note</h2>
+        <textarea id="note-text" rows="10"
+                  placeholder="Paste meeting notes, ideas, or anything to triage..."
+                  ></textarea>
+        <input type="text" id="note-context"
+               placeholder="Additional context (optional)"
+               style="width:100%;padding:0.55rem 0.75rem;
+                      background:var(--bg);border:1px solid var(--border);
+                      border-radius:4px;color:var(--text);
+                      font-size:0.85rem;outline:none;margin-top:0.5rem">
+        <div class="modal-actions">
+            <button class="secondary" onclick="closeNoteModal()">
+                Cancel
+            </button>
+            <button class="primary" onclick="submitNote()">
+                Capture & Triage
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openNoteModal() {
+    document.getElementById('note-modal').classList.add('open');
+    setTimeout(() => document.getElementById('note-text').focus(), 50);
+}
+function closeNoteModal() {
+    document.getElementById('note-modal').classList.remove('open');
+    document.getElementById('note-text').value = '';
+    document.getElementById('note-context').value = '';
+}
+async function submitNote() {
+    const content = document.getElementById('note-text').value.trim();
+    const context = document.getElementById('note-context').value.trim();
+    if (!content) return;
+    try {
+        const r = await fetch('/api/notes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({
+                content: content,
+                context: context,
+                source: 'dashboard'
+            })
+        });
+        if (r.ok) {
+            closeNoteModal();
+            // Trigger tile refresh
+            document.body.dispatchEvent(new Event('refresh'));
+        }
+    } catch(e) {
+        alert('Failed to capture note: ' + e.message);
+    }
+}
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeNoteModal();
+});
+
+// SSE for live updates
+const evt = new EventSource('/dashboard/events');
+evt.addEventListener('update', () => {
+    document.body.dispatchEvent(new Event('refresh'));
+});
+</script>
 {% endblock %}

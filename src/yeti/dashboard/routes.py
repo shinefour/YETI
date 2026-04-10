@@ -1,9 +1,11 @@
 """Dashboard routes — HTMX + Jinja2 web interface."""
 
+import asyncio
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from yeti.agents.chat import chat as chat_agent
@@ -21,7 +23,7 @@ templates = Jinja2Templates(
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request):
     return templates.TemplateResponse(
-        request, "home.html", {"active": "chat"}
+        request, "home.html", {"active": "home"}
     )
 
 
@@ -126,6 +128,197 @@ async def status_sidebar_partial():
             f'<span class="name">{name}</span>{dot}</div>'
         )
     return "\n".join(rows)
+
+
+@router.get("/events")
+async def events_stream():
+    """SSE stream for live dashboard updates.
+
+    Polls the underlying stores at a low frequency and emits an
+    event whenever a relevant counter changes.
+    """
+
+    async def event_generator():
+        last_state = {}
+
+        while True:
+            try:
+                inbox = InboxStore()
+                tasks = TaskStore()
+
+                from yeti.models.notes import (
+                    NoteStatus,
+                    NoteStore,
+                )
+
+                notes = NoteStore()
+
+                state = {
+                    "inbox_pending": inbox.count_pending(),
+                    "tasks_pending": len(
+                        tasks.list(
+                            status=TaskStatus.PENDING_REVIEW
+                        )
+                    ),
+                    "tasks_active": len(
+                        tasks.list(status=TaskStatus.ACTIVE)
+                    ),
+                    "notes_in_flight": (
+                        len(
+                            notes.list_by_status(
+                                NoteStatus.PENDING
+                            )
+                        )
+                        + len(
+                            notes.list_by_status(
+                                NoteStatus.PROCESSING
+                            )
+                        )
+                    ),
+                }
+
+                if state != last_state:
+                    yield (
+                        "event: update\n"
+                        "data: " + json.dumps(state) + "\n\n"
+                    )
+                    last_state = state
+                else:
+                    # Heartbeat to keep connection alive
+                    yield ": ping\n\n"
+
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/partials/usage-sidebar", response_class=HTMLResponse
+)
+async def usage_sidebar_partial():
+    from yeti.api.usage import usage_summary
+
+    data = await usage_summary()
+    pct = data["budget_used_pct"]
+    if pct >= 100:
+        bar_color = "var(--red)"
+    elif pct >= data["alert_threshold_pct"]:
+        bar_color = "var(--yellow)"
+    else:
+        bar_color = "var(--green)"
+
+    return f"""
+    <h3>Usage</h3>
+    <div class="status-item">
+      <span class="name">Today</span>
+      <span>${data["today_usd"]:.2f}</span>
+    </div>
+    <div class="status-item">
+      <span class="name">Month</span>
+      <span>${data["month_paid_usd"]:.2f}</span>
+    </div>
+    <div style="padding: 0.4rem 0.5rem">
+      <div style="background: var(--border); height: 3px;
+                  border-radius: 2px; overflow: hidden">
+        <div style="background: {bar_color}; height: 100%;
+                    width: {min(pct, 100):.1f}%"></div>
+      </div>
+      <div style="font-size: 0.65rem; color: var(--text-dim);
+                  margin-top: 0.2rem; text-align: right">
+        {pct:.0f}% of ${data["budget_usd"]:.0f}
+      </div>
+    </div>
+    """
+
+
+@router.get(
+    "/partials/home-tiles", response_class=HTMLResponse
+)
+async def home_tiles_partial():
+    """Render the control center tiles with latest data."""
+    from datetime import UTC, datetime
+
+    inbox = InboxStore()
+    pending_inbox = inbox.list_pending()
+    inbox_count = len(pending_inbox)
+    inbox_active_title = (
+        pending_inbox[0].title if pending_inbox else "All clear"
+    )
+    inbox_color = (
+        "var(--yellow)" if inbox_count > 0 else "var(--green)"
+    )
+
+    tasks = TaskStore()
+    pending_tasks = tasks.list(
+        status=TaskStatus.PENDING_REVIEW
+    )
+    active_tasks = tasks.list(status=TaskStatus.ACTIVE)
+    pending_count = len(pending_tasks)
+    active_count = len(active_tasks)
+
+    from yeti.models.notes import NoteStatus, NoteStore
+
+    notes = NoteStore()
+    pending_notes = notes.list_by_status(
+        NoteStatus.PENDING
+    )
+    processing_notes = notes.list_by_status(
+        NoteStatus.PROCESSING
+    )
+    notes_in_flight = len(pending_notes) + len(
+        processing_notes
+    )
+
+    now = datetime.now(UTC).strftime("%H:%M:%S UTC")
+
+    return f"""
+    <div class="tile" onclick="location.href='/dashboard/inbox'">
+      <div class="tile-label">Inbox</div>
+      <div class="tile-value" style="color: {inbox_color}">
+        {inbox_count}
+      </div>
+      <div class="tile-detail">{inbox_active_title}</div>
+      <div class="tile-meta">
+        <span><span class="pulse-dot"></span>updated {now}</span>
+        <span>tap to open →</span>
+      </div>
+    </div>
+
+    <div class="tile tile-action" onclick="openNoteModal()">
+      <div class="tile-label">Capture</div>
+      <div class="tile-value">+ Note</div>
+      <div class="tile-detail">
+        Quick capture for triage
+      </div>
+      <div class="tile-meta">
+        <span>{notes_in_flight} in flight</span>
+        <span>tap to add →</span>
+      </div>
+    </div>
+
+    <div class="tile" onclick="location.href='/dashboard/tasks'">
+      <div class="tile-label">Tasks</div>
+      <div class="tile-value">{active_count}</div>
+      <div class="tile-detail">
+        {pending_count} pending review · {active_count} active
+      </div>
+      <div class="tile-meta">
+        <span><span class="pulse-dot"></span>updated {now}</span>
+        <span>tap to open →</span>
+      </div>
+    </div>
+    """
 
 
 @router.get(
