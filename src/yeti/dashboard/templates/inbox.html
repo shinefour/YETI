@@ -32,7 +32,9 @@ window.clearAndRefresh = function() {
     setTimeout(() => { window._yetiClearing = false; }, 1000);
 };
 
-// Edit guard: skip refresh if user has unsaved input
+// Edit guard: skip refresh if user has unsaved input.
+// Only blocks the auto-refresh GET on the container itself —
+// button-initiated POST/PATCH from children always go through.
 (function() {
     const target = document.getElementById('inbox-active');
 
@@ -49,6 +51,8 @@ window.clearAndRefresh = function() {
     }
 
     target.addEventListener('htmx:beforeRequest', (evt) => {
+        // Only intercept the auto-refresh of the container itself
+        if (evt.target !== target) return;
         if (isUserEditing()) {
             evt.preventDefault();
         }
