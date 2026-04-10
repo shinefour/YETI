@@ -1,33 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Home{% endblock %}
 {% block content %}
-<div class="home-layout">
-    <div class="home-tiles">
-        <h1>Control Center</h1>
+<div class="page-content">
+    <h1>Control Center</h1>
 
-        <div class="tile-grid"
-             id="home-tiles"
-             hx-get="/dashboard/partials/home-tiles"
-             hx-trigger="load, refresh from:body"
-             hx-swap="innerHTML">
-        </div>
+    <div class="tile-grid"
+         id="home-tiles"
+         hx-get="/dashboard/partials/home-tiles"
+         hx-trigger="load, refresh from:body"
+         hx-swap="innerHTML">
     </div>
-
-    <aside class="home-chat">
-        <div class="home-chat-header">Chat with YETI</div>
-        <div class="home-chat-messages" id="messages"></div>
-        <form class="home-chat-input" id="chat-form"
-              hx-post="/dashboard/partials/chat"
-              hx-target="#messages" hx-swap="beforeend"
-              hx-on::after-request="this.reset();
-                document.getElementById('messages').scrollTop =
-                document.getElementById('messages').scrollHeight">
-            <input type="text" name="message"
-                   placeholder="Ask YETI..."
-                   autocomplete="off">
-            <button type="submit">Send</button>
-        </form>
-    </aside>
 </div>
 
 <!-- Note capture modal -->
@@ -45,10 +27,10 @@
                       border-radius:4px;color:var(--text);
                       font-size:0.85rem;outline:none;margin-top:0.5rem">
         <div class="modal-actions">
-            <button class="secondary" onclick="closeNoteModal()">
+            <button class="btn btn-ghost" onclick="closeNoteModal()">
                 Cancel
             </button>
-            <button class="primary" onclick="submitNote()">
+            <button class="btn btn-primary" onclick="submitNote()">
                 Capture & Triage
             </button>
         </div>
@@ -82,7 +64,6 @@ async function submitNote() {
         });
         if (r.ok) {
             closeNoteModal();
-            // Trigger tile refresh
             document.body.dispatchEvent(new Event('refresh'));
         }
     } catch(e) {
@@ -91,12 +72,6 @@ async function submitNote() {
 }
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeNoteModal();
-});
-
-// SSE for live updates
-const evt = new EventSource('/dashboard/events');
-evt.addEventListener('update', () => {
-    document.body.dispatchEvent(new Event('refresh'));
 });
 </script>
 {% endblock %}

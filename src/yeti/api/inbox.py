@@ -151,6 +151,38 @@ async def _store_disambiguation_learning(
         logger.exception("Failed to store disambiguation learning")
 
 
+@router.post("/{item_id}/convert-to-task")
+async def convert_to_task(item_id: str, body: dict):
+    """Convert an inbox item into a Task and resolve the inbox item."""
+    from yeti.models.tasks import Task, TaskStore
+
+    item = store.get(item_id)
+    if not item:
+        return JSONResponse(
+            {"error": "Not found"}, status_code=404
+        )
+
+    title = body.get("title", item.title)
+    project = body.get("project", "")
+
+    task_store = TaskStore()
+    task = task_store.create(
+        Task(
+            title=title,
+            source=f"inbox:{item_id}",
+            project=project,
+            context=item.summary,
+        )
+    )
+
+    # Resolve the inbox item
+    store.resolve(
+        item_id, "converted_to_task", note=task.id
+    )
+
+    return {"task": task.model_dump()}
+
+
 @router.get("/{item_id}/audit")
 async def item_audit(item_id: str):
     entries = store.audit_log(item_id=item_id)
