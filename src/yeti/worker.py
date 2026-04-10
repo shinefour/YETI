@@ -151,3 +151,31 @@ async def _sync_notion_async():
         # TODO: store events in MemPalace once connected
     except Exception:
         logger.exception("Notion sync failed")
+
+
+@celery_app.task
+def triage_note(note_id: str):
+    """Process a note via the Triage Agent."""
+    _run_async(_triage_note_async(note_id))
+
+
+async def _triage_note_async(note_id: str):
+    from yeti.agents.triage import triage_note_content
+    from yeti.models.notes import NoteStore
+
+    store = NoteStore()
+    note = store.get(note_id)
+    if not note:
+        logger.error("Triage: note %s not found", note_id)
+        return
+
+    store.mark_processing(note_id)
+    try:
+        summary = await triage_note_content(note)
+        store.mark_processed(note_id, summary=summary)
+        await _send_telegram(
+            f"Note triaged: {summary[:200]}"
+        )
+    except Exception as e:
+        logger.exception("Triage failed for %s", note_id)
+        store.mark_failed(note_id, str(e))

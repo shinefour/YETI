@@ -178,6 +178,57 @@ def add_action(
         )
 
 
+@app.command()
+def note(
+    text: str = typer.Argument(
+        None, help="Note text. If omitted, reads from stdin."
+    ),
+    title: str = typer.Option("", "--title", "-t"),
+    context: str = typer.Option("", "--context", "-c"),
+):
+    """Capture a note for triage. Reads from stdin if no text given."""
+    import sys
+
+    if text is None:
+        if sys.stdin.isatty():
+            console.print(
+                "[red]No text provided. "
+                "Pass as argument or pipe via stdin.[/red]"
+            )
+            return
+        text = sys.stdin.read()
+
+    text = text.strip()
+    if not text:
+        console.print("[red]Empty note.[/red]")
+        return
+
+    try:
+        response = httpx.post(
+            f"{_api_url()}/api/notes",
+            json={
+                "content": text,
+                "title": title,
+                "context": context,
+                "source": "cli",
+            },
+            timeout=10,
+            headers=_headers(),
+        )
+        data = response.json()
+        if "error" in data:
+            console.print(f"[red]{data['error']}[/red]")
+            return
+        console.print(
+            f"[green]Note captured[/green] "
+            f"[dim]({data['id'][:8]})[/dim] — triaging in background"
+        )
+    except httpx.ConnectError:
+        console.print(
+            "[red]Cannot connect to YETI API.[/red]"
+        )
+
+
 def _send_message(
     message: str, history: list[dict] | None = None
 ) -> str | None:

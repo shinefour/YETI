@@ -39,6 +39,13 @@ async def inbox_page(request: Request):
     )
 
 
+@router.get("/notes", response_class=HTMLResponse)
+async def notes_page(request: Request):
+    return templates.TemplateResponse(
+        request, "notes.html", {"active": "notes"}
+    )
+
+
 @router.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
     return templates.TemplateResponse(
@@ -164,6 +171,38 @@ async def usage_summary_partial():
     <h3 style="margin-top: 1rem">Top models</h3>
     {by_model_rows or '<div class="muted" style="font-size:0.75rem">No usage yet</div>'}
     """
+
+
+@router.post("/partials/note", response_class=HTMLResponse)
+async def note_partial(
+    content: str = Form(...),
+    title: str = Form(""),
+    context: str = Form(""),
+):
+    """Capture a note from the dashboard form."""
+    from yeti.models.notes import Note, NoteSource, NoteStore
+
+    note = Note(
+        content=content,
+        title=title,
+        context=context,
+        source=NoteSource.DASHBOARD,
+    )
+    store = NoteStore()
+    store.create(note)
+
+    try:
+        from yeti.worker import triage_note
+
+        triage_note.delay(note.id)
+        msg = "queued for triage"
+    except Exception:
+        msg = "saved (worker offline)"
+
+    return (
+        f'<div class="muted" style="font-size:0.85rem">'
+        f"Note captured ({note.id[:8]}) — {msg}</div>"
+    )
 
 
 @router.post("/partials/chat", response_class=HTMLResponse)

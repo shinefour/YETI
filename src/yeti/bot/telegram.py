@@ -39,8 +39,9 @@ async def cmd_start(update: Update, context) -> None:
     await update.message.reply_text(
         "YETI is online. Commands:\n"
         "/status — system status\n"
-        "/actions — pending action items\n"
-        "/add <title> — create action item\n"
+        "/actions — pending tasks\n"
+        "/add <title> — create task\n"
+        "/note <text> — capture note for triage\n"
         "Or just send a message to chat."
     )
 
@@ -140,6 +141,44 @@ async def cmd_add(update: Update, context) -> None:
     await update.message.reply_text(
         f"Created: {item.title} ({item.id[:8]})"
     )
+
+
+async def cmd_note(update: Update, context) -> None:
+    """Capture a note for triage."""
+    if not _is_authorized(update):
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /note <text>\n"
+            "Or send any long message and reply with /note"
+        )
+        return
+
+    content = " ".join(context.args)
+    from yeti.models.notes import Note, NoteSource, NoteStore
+
+    store = NoteStore()
+    note = store.create(
+        Note(
+            content=content,
+            source=NoteSource.TELEGRAM,
+        )
+    )
+
+    # Queue triage
+    try:
+        from yeti.worker import triage_note
+
+        triage_note.delay(note.id)
+        await update.message.reply_text(
+            f"Note captured ({note.id[:8]}). "
+            "Triaging in background..."
+        )
+    except Exception:
+        await update.message.reply_text(
+            f"Note saved ({note.id[:8]}) but worker unavailable."
+        )
 
 
 async def handle_callback(
@@ -284,6 +323,7 @@ def _build_app() -> Application:
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("actions", cmd_actions))
     app.add_handler(CommandHandler("add", cmd_add))
+    app.add_handler(CommandHandler("note", cmd_note))
     app.add_handler(CallbackQueryHandler(handle_callback))
     text_filter = filters.TEXT & ~filters.COMMAND
     app.add_handler(MessageHandler(text_filter, handle_message))

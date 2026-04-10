@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Notes{% endblock %}
+{% block content %}
+<div class="page-content">
+<h1>Capture Note</h1>
+
+<div class="card">
+  <h2>New Note</h2>
+  <form id="note-form" hx-post="/dashboard/partials/note"
+        hx-target="#note-result" hx-swap="innerHTML"
+        hx-on::after-request="this.reset()">
+    <input type="text" name="title" placeholder="Title (optional)"
+           style="width:100%;padding:0.6rem 0.75rem;
+                  background:transparent;border:1px solid var(--border);
+                  border-radius:4px;color:var(--text);
+                  font-size:0.9rem;outline:none;margin-bottom:0.5rem">
+    <textarea name="content" rows="10"
+              placeholder="Paste meeting notes, ideas, or anything to triage..."
+              required
+              style="width:100%;padding:0.6rem 0.75rem;
+                     background:transparent;border:1px solid var(--border);
+                     border-radius:4px;color:var(--text);
+                     font-size:0.9rem;outline:none;
+                     font-family:inherit;resize:vertical"></textarea>
+    <input type="text" name="context" placeholder="Additional context (optional)"
+           style="width:100%;padding:0.6rem 0.75rem;
+                  background:transparent;border:1px solid var(--border);
+                  border-radius:4px;color:var(--text);
+                  font-size:0.9rem;outline:none;margin-top:0.5rem">
+    <button type="submit"
+            style="margin-top:0.75rem;padding:0.6rem 1.25rem;
+                   background:transparent;color:var(--accent);
+                   border:1px solid var(--border);border-radius:4px;
+                   cursor:pointer;font-size:0.85rem">
+      Capture & Triage
+    </button>
+  </form>
+  <div id="note-result" style="margin-top:1rem"></div>
+</div>
+
+<div class="card">
+  <h2>Recent Notes</h2>
+  <div id="recent-notes"
+       hx-get="/api/notes/recent?limit=20"
+       hx-trigger="load, every 30s"
+       hx-on::after-request="renderNotes(event)">
+    <div class="muted">Loading...</div>
+  </div>
+</div>
+
+<script>
+function renderNotes(evt) {
+  try {
+    const notes = JSON.parse(evt.detail.xhr.responseText);
+    if (!notes.length) {
+      document.getElementById('recent-notes').innerHTML =
+        '<div class="muted">No notes yet</div>';
+      return;
+    }
+    const html = notes.map(n => {
+      const time = new Date(n.created_at).toLocaleString();
+      const statusColor = n.status === 'processed' ? 'var(--green)'
+        : n.status === 'failed' ? 'var(--red)'
+        : 'var(--yellow)';
+      const summary = n.triage_summary || n.content.slice(0, 100);
+      return `<div class="status-item">
+        <span class="name">${time} — ${(n.title || summary).slice(0, 80)}</span>
+        <span class="badge" style="color:${statusColor}">${n.status}</span>
+      </div>`;
+    }).join('');
+    document.getElementById('recent-notes').innerHTML = html;
+  } catch(e) {
+    document.getElementById('recent-notes').innerHTML =
+      '<div class="muted">Could not load notes</div>';
+  }
+}
+</script>
+</div>
+{% endblock %}
