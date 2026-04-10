@@ -154,6 +154,85 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_kg_invalidate",
+            "description": (
+                "Mark a fact as no longer true. Use when a "
+                "previously stored relationship has changed or "
+                "was incorrect."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string"},
+                    "predicate": {"type": "string"},
+                    "object": {"type": "string"},
+                    "ended": {
+                        "type": "string",
+                        "description": "When it stopped being true (YYYY-MM-DD)",
+                    },
+                },
+                "required": ["subject", "predicate", "object"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_kg_timeline",
+            "description": (
+                "Get a chronological timeline of facts. "
+                "Optionally filtered by entity. Useful for "
+                "finding recently added or invalid facts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity": {
+                        "type": "string",
+                        "description": "Entity to filter by (optional)",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_get_taxonomy",
+            "description": (
+                "Get the full palace taxonomy: wings, rooms, "
+                "and drawer counts. Useful for understanding "
+                "what's stored where."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_delete_drawer",
+            "description": (
+                "Delete a drawer by its ID. Irreversible. Use "
+                "to remove misrouted or duplicate content."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "drawer_id": {
+                        "type": "string",
+                        "description": "Drawer ID to delete",
+                    },
+                },
+                "required": ["drawer_id"],
+            },
+        },
+    },
 ]
 
 
@@ -182,6 +261,23 @@ async def _handle_tool_call(tool_call) -> str:
             predicate=args["predicate"],
             obj=args["object"],
             valid_from=args.get("valid_from"),
+        )
+    elif name == "memory_kg_invalidate":
+        result = await _memory.kg_invalidate(
+            subject=args["subject"],
+            predicate=args["predicate"],
+            obj=args["object"],
+            ended=args.get("ended"),
+        )
+    elif name == "memory_kg_timeline":
+        result = await _memory.kg_timeline(
+            entity=args.get("entity")
+        )
+    elif name == "memory_get_taxonomy":
+        result = await _memory.get_taxonomy()
+    elif name == "memory_delete_drawer":
+        result = await _memory.delete_drawer(
+            drawer_id=args["drawer_id"]
         )
     else:
         result = {"error": f"Unknown tool: {name}"}

@@ -43,21 +43,25 @@ TOOLS = {
         "description": "Add a fact to the knowledge graph with optional time window",
         "implemented": True,
     },
-    # Not yet wired — agent should suggest these when useful
     "mempalace_get_taxonomy": {
         "description": "Full taxonomy: wing -> room -> drawer count",
-        "implemented": False,
-    },
-    "mempalace_get_aaak_spec": {
-        "description": "Get the AAAK dialect specification",
-        "implemented": False,
+        "implemented": True,
     },
     "mempalace_kg_invalidate": {
         "description": "Mark a fact as no longer true",
-        "implemented": False,
+        "implemented": True,
     },
     "mempalace_kg_timeline": {
         "description": "Chronological timeline of facts",
+        "implemented": True,
+    },
+    "mempalace_delete_drawer": {
+        "description": "Delete a drawer by ID",
+        "implemented": True,
+    },
+    # Not yet wired — agent should suggest these when useful
+    "mempalace_get_aaak_spec": {
+        "description": "Get the AAAK dialect specification",
         "implemented": False,
     },
     "mempalace_kg_stats": {
@@ -74,10 +78,6 @@ TOOLS = {
     },
     "mempalace_graph_stats": {
         "description": "Palace graph overview: rooms, tunnels, edges",
-        "implemented": False,
-    },
-    "mempalace_delete_drawer": {
-        "description": "Delete a drawer by ID",
         "implemented": False,
     },
     "mempalace_diary_write": {
@@ -329,6 +329,45 @@ class MemPalaceClient:
         if valid_from:
             args["valid_from"] = valid_from
         return await self.call_tool("mempalace_kg_add", args)
+
+    async def kg_invalidate(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        ended: str | None = None,
+    ) -> dict:
+        args = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+        }
+        if ended:
+            args["ended"] = ended
+        return await self.call_tool(
+            "mempalace_kg_invalidate", args
+        )
+
+    async def kg_timeline(
+        self, entity: str | None = None
+    ) -> dict:
+        args = {}
+        if entity:
+            args["entity"] = entity
+        return await self.call_tool(
+            "mempalace_kg_timeline", args
+        )
+
+    async def get_taxonomy(self) -> dict:
+        return await self.call_tool(
+            "mempalace_get_taxonomy"
+        )
+
+    async def delete_drawer(self, drawer_id: str) -> dict:
+        return await self.call_tool(
+            "mempalace_delete_drawer",
+            {"drawer_id": drawer_id},
+        )
 
     async def close(self):
         """Shut down the MCP server subprocess."""

@@ -87,6 +87,37 @@ async def kg_add(body: dict):
     )
 
 
+@router.post("/kg/invalidate")
+async def kg_invalidate(body: dict):
+    for field in ("subject", "predicate", "object"):
+        if not body.get(field):
+            return JSONResponse(
+                {"error": f"{field} required"},
+                status_code=400,
+            )
+    return await _client.kg_invalidate(
+        subject=body["subject"],
+        predicate=body["predicate"],
+        obj=body["object"],
+        ended=body.get("ended"),
+    )
+
+
+@router.get("/kg/timeline")
+async def kg_timeline(entity: str | None = None):
+    return await _client.kg_timeline(entity=entity)
+
+
+@router.get("/taxonomy")
+async def get_taxonomy():
+    return await _client.get_taxonomy()
+
+
+@router.delete("/drawer/{drawer_id}")
+async def delete_drawer(drawer_id: str):
+    return await _client.delete_drawer(drawer_id=drawer_id)
+
+
 @router.get("/tools/unimplemented")
 async def unimplemented_tools():
     """List MemPalace tools not yet wired into YETI."""
