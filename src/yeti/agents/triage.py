@@ -34,6 +34,14 @@ Today's date: {today}
 
 The note may be a meeting note, email, idea, status update, or other.
 
+ROUTING RULE — IMPORTANT:
+If the additional context mentions a "Default wing", you MUST use \
+that wing unless the content is unambiguously about a different \
+business entity. Cross-organisation routing requires explicit \
+evidence in the content (e.g. "this is a Conetic meeting" stated \
+plainly), not topical similarity. When in doubt, use the default \
+wing.
+
 Return ONLY a JSON object with this shape:
 {{
   "type": "meeting_note" | "email" | "idea" | "status" | "other",

@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     gmail_client_id: str = ""
     gmail_client_secret: str = ""
     gmail_email: str = ""
+    # Wing this mailbox belongs to — used to bias triage routing
+    gmail_default_wing: str = "globalstudio"
 
     model_config = {
         "env_prefix": "YETI_",

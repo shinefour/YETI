@@ -260,11 +260,20 @@ def _sync_gmail_sync():
             f"{msg.get('body', '') or msg.get('snippet', '')}"
         )
 
+        default_wing = settings.gmail_default_wing or ""
+        wing_hint = (
+            f" Default wing: {default_wing}."
+            if default_wing
+            else ""
+        )
         note = note_store.create(
             Note(
                 content=content,
                 title=title,
-                context=f"Gmail message from {sender}",
+                context=(
+                    f"Email received via Gmail mailbox "
+                    f"({settings.gmail_email}).{wing_hint}"
+                ),
                 source=NoteSource.EMAIL,
             )
         )
