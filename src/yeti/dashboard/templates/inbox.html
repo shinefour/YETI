@@ -6,9 +6,35 @@
 
 <div id="inbox-active"
      hx-get="/dashboard/partials/inbox-active"
-     hx-trigger="load, refresh, every 30s"
+     hx-trigger="load, refresh"
      hx-swap="innerHTML">
   <div class="card"><div class="muted">Loading...</div></div>
 </div>
 </div>
+
+<script>
+// Guard against refresh while user is editing the inbox form.
+// Intercepts the refresh event and only proceeds if no input/textarea
+// inside #inbox-active is focused or has unsaved content.
+(function() {
+    const target = document.getElementById('inbox-active');
+
+    function isUserEditing() {
+        const inputs = target.querySelectorAll(
+            'input[type="text"], textarea'
+        );
+        for (const el of inputs) {
+            if (document.activeElement === el) return true;
+            if (el.value && el.value.trim()) return true;
+        }
+        return false;
+    }
+
+    target.addEventListener('htmx:beforeRequest', (evt) => {
+        if (isUserEditing()) {
+            evt.preventDefault();
+        }
+    });
+})();
+</script>
 {% endblock %}

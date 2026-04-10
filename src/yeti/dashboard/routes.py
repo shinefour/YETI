@@ -555,6 +555,7 @@ async def inbox_active_partial():
         )
 
     body_html, actions_html = _render_inbox_body(active)
+    source_html = _render_source_note(active)
 
     return f"""
     <div class="card">
@@ -567,7 +568,51 @@ async def inbox_active_partial():
         {actions_html}
       </div>
     </div>
+    {source_html}
     {upcoming_html}
+    """
+
+
+def _render_source_note(item) -> str:
+    """If the item has a source note, render it as a collapsible card."""
+    if not item.source_note_id:
+        return ""
+
+    from yeti.models.notes import NoteStore
+
+    store = NoteStore()
+    note = store.get(item.source_note_id)
+    if not note:
+        return ""
+
+    import html as _html
+
+    captured = note.created_at.split("T")[0]
+    title = note.title or "Source note"
+    content_html = _html.escape(note.content or "")
+    context_html = (
+        f'<div class="muted" style="font-size:0.75rem;'
+        f'margin-bottom:0.5rem">Context: '
+        f"{_html.escape(note.context)}</div>"
+        if note.context
+        else ""
+    )
+
+    return f"""
+    <div class="card">
+      <h2>Source: {_html.escape(title)}</h2>
+      <div class="muted" style="font-size:0.75rem;
+                                margin-bottom:0.5rem">
+        Captured {captured} via {note.source.value}
+      </div>
+      {context_html}
+      <pre style="white-space:pre-wrap;font-size:0.8rem;
+                  color:var(--text-soft);max-height:400px;
+                  overflow-y:auto;background:var(--bg);
+                  padding:0.75rem;border-radius:4px;
+                  border:1px solid var(--border);
+                  font-family:inherit">{content_html}</pre>
+    </div>
     """
 
 
