@@ -77,33 +77,11 @@ async def cmd_actions(update: Update, context) -> None:
         return
 
     store = TaskStore()
-    pending = store.list(status=TaskStatus.PENDING_REVIEW)
     active = store.list(status=TaskStatus.ACTIVE)
 
-    if not pending and not active:
-        await update.message.reply_text("No action items.")
+    if not active:
+        await update.message.reply_text("No active tasks.")
         return
-
-    for item in pending:
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "Approve",
-                        callback_data=f"approve:{item.id}",
-                    ),
-                    InlineKeyboardButton(
-                        "Reject",
-                        callback_data=f"reject:{item.id}",
-                    ),
-                ]
-            ]
-        )
-        project = f" [{item.project}]" if item.project else ""
-        await update.message.reply_text(
-            f"PENDING: {item.title}{project}",
-            reply_markup=keyboard,
-        )
 
     for item in active:
         keyboard = InlineKeyboardMarkup(

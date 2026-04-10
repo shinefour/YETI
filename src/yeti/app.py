@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     app.state.started_at = datetime.now(UTC)
+
+    try:
+        from yeti.migrations import run_all
+
+        run_all()
+    except Exception:
+        logger.exception("Migrations failed")
+
     yield
 
 

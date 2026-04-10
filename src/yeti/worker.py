@@ -79,18 +79,25 @@ async def _morning_briefing_async():
 
     lines = ["*YETI Morning Briefing*\n"]
 
-    # Action items summary
+    # Tasks summary (and inbox as new pending review)
     store = TaskStore()
-    pending = store.list(status=TaskStatus.PENDING_REVIEW)
+    blocked = store.list(status=TaskStatus.BLOCKED)
     active = store.list(status=TaskStatus.ACTIVE)
 
-    if pending:
-        lines.append(f"*Pending review:* {len(pending)}")
-        for item in pending[:5]:
-            lines.append(f"  - {item.title}")
+    # Inbox count (replaces old pending_review concept)
+    from yeti.models.inbox import InboxStore
+
+    inbox_count = InboxStore().count_pending()
+    if inbox_count:
+        lines.append(f"*Inbox needs review:* {inbox_count}")
+
     if active:
-        lines.append(f"\n*Active items:* {len(active)}")
+        lines.append(f"\n*Active tasks:* {len(active)}")
         for item in active[:5]:
+            lines.append(f"  - {item.title}")
+    if blocked:
+        lines.append(f"\n*Blocked:* {len(blocked)}")
+        for item in blocked[:5]:
             lines.append(f"  - {item.title}")
 
     # Jira updates
@@ -109,8 +116,8 @@ async def _morning_briefing_async():
         except Exception:
             logger.exception("Jira pull failed in briefing")
 
-    if not pending and not active:
-        lines.append("No action items. Clean slate.")
+    if not blocked and not active and not inbox_count:
+        lines.append("No tasks. Clean slate.")
 
     await _send_telegram("\n".join(lines))
 

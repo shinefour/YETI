@@ -36,7 +36,7 @@ def test_create_task():
     assert response.status_code == 201
     data = response.json()
     assert data["title"] == "Review PR"
-    assert data["status"] == "pending_review"
+    assert data["status"] == "active"
     assert data["project"] == "YETI"
 
 

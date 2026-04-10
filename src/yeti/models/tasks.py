@@ -19,7 +19,6 @@ DB_PATH = Path(settings.db_path)
 
 
 class TaskStatus(enum.StrEnum):
-    PENDING_REVIEW = "pending_review"
     ACTIVE = "active"
     BLOCKED = "blocked"
     COMPLETED = "completed"
@@ -30,7 +29,7 @@ class Task(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     source: str = ""
-    status: TaskStatus = TaskStatus.PENDING_REVIEW
+    status: TaskStatus = TaskStatus.ACTIVE
     assignee: str = ""
     due_date: str | None = None
     project: str = ""
@@ -62,7 +61,7 @@ class TaskStore:
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     source TEXT DEFAULT '',
-                    status TEXT DEFAULT 'pending_review',
+                    status TEXT DEFAULT 'active',
                     assignee TEXT DEFAULT '',
                     due_date TEXT,
                     project TEXT DEFAULT '',

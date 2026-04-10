@@ -161,13 +161,11 @@ async def events_stream():
 
                 state = {
                     "inbox_pending": inbox.count_pending(),
-                    "tasks_pending": len(
-                        tasks.list(
-                            status=TaskStatus.PENDING_REVIEW
-                        )
-                    ),
                     "tasks_active": len(
                         tasks.list(status=TaskStatus.ACTIVE)
+                    ),
+                    "tasks_blocked": len(
+                        tasks.list(status=TaskStatus.BLOCKED)
                     ),
                     "notes_in_flight": (
                         len(
@@ -266,12 +264,10 @@ async def home_tiles_partial():
     )
 
     tasks = TaskStore()
-    pending_tasks = tasks.list(
-        status=TaskStatus.PENDING_REVIEW
-    )
     active_tasks = tasks.list(status=TaskStatus.ACTIVE)
-    pending_count = len(pending_tasks)
+    blocked_tasks = tasks.list(status=TaskStatus.BLOCKED)
     active_count = len(active_tasks)
+    blocked_count = len(blocked_tasks)
 
     from yeti.models.notes import NoteStatus, NoteStore
 
@@ -317,7 +313,7 @@ async def home_tiles_partial():
       <div class="tile-label">Tasks</div>
       <div class="tile-value">{active_count}</div>
       <div class="tile-detail">
-        {pending_count} pending review · {active_count} active
+        {active_count} active · {blocked_count} blocked
       </div>
       <div class="tile-meta">
         <span><span class="pulse-dot"></span>updated {now}</span>
@@ -452,25 +448,14 @@ async def tasks_partial(status: str = "pending_review"):
     rows = []
     for item in items:
         buttons = ""
-        if task_status == TaskStatus.PENDING_REVIEW:
+        if task_status == TaskStatus.ACTIVE:
             buttons = (
-                f'<div class="btn-row">'
                 f'<button class="btn btn-success btn-sm" '
-                f'hx-patch="/api/tasks/{item.id}/status" '
-                f"hx-vals='{{\"status\":\"active\"}}' "
-                f'hx-swap="none">Approve</button>'
+                f"onclick=\"markTaskDone('{item.id}')\">"
+                f"Done</button> "
                 f'<button class="btn btn-ghost btn-sm" '
-                f'hx-patch="/api/tasks/{item.id}/status" '
-                f"hx-vals='{{\"status\":\"cancelled\"}}' "
-                f'hx-swap="none">Reject</button>'
-                f"</div>"
-            )
-        elif task_status == TaskStatus.ACTIVE:
-            buttons = (
-                f'<button class="btn btn-success btn-sm" '
-                f'hx-patch="/api/tasks/{item.id}/status" '
-                f"hx-vals='{{\"status\":\"completed\"}}' "
-                f'hx-swap="none">Done</button>'
+                f"onclick=\"markTaskCancelled('{item.id}')\">"
+                f"Cancel</button>"
             )
 
         project_tag = ""
@@ -480,9 +465,17 @@ async def tasks_partial(status: str = "pending_review"):
                 f"{item.project}</span>"
             )
 
+        assignee_tag = ""
+        if item.assignee and item.assignee != "Daniel":
+            assignee_tag = (
+                f' <span class="badge badge-dim">'
+                f"{item.assignee}</span>"
+            )
+
         rows.append(
             f'<div class="status-row">'
-            f'<span style="flex:1">{item.title}{project_tag}</span>'
+            f'<span style="flex:1">{item.title}'
+            f"{project_tag}{assignee_tag}</span>"
             f"<span>{buttons}</span></div>"
         )
     return "\n".join(rows)
@@ -747,10 +740,26 @@ def _render_schema_form(item) -> tuple[str, str]:
     </form>
     """
 
-    # Build actions
+    # Build actions — proposed actions get a different submit handler
+    from yeti.models.inbox import InboxType
+
+    is_proposed_action = (
+        item.type == InboxType.PROPOSED_ACTION
+    )
+    submit_label = (
+        "Approve & Create Task"
+        if is_proposed_action
+        else "Send answer"
+    )
+    submit_handler = (
+        "submitProposedTask"
+        if is_proposed_action
+        else "submitAnswer"
+    )
     submit_btn = (
         f'<button type="button" class="btn btn-primary" '
-        f"onclick=\"submitAnswer('{item.id}')\">Send answer</button>"
+        f"onclick=\"{submit_handler}('{item.id}')\">"
+        f"{submit_label}</button>"
     )
 
     quick_action_buttons = []
@@ -794,13 +803,17 @@ def _render_schema_form(item) -> tuple[str, str]:
         b.style.pointerEvents = busy ? 'none' : '';
       });
     }
-    async function submitAnswer(itemId) {
+    function _collectAnswer(itemId) {
       const form = document.getElementById('answer-form-' + itemId);
       const inputs = form.querySelectorAll('[data-key]');
       const answer = {};
       inputs.forEach(el => {
         if (el.value) answer[el.dataset.key] = el.value;
       });
+      return answer;
+    }
+    async function submitAnswer(itemId) {
+      const answer = _collectAnswer(itemId);
       setBusy(null, true, 'Sending answer to YETI...');
       try {
         const r = await fetch('/api/inbox/' + itemId + '/answer', {
@@ -816,6 +829,31 @@ def _render_schema_form(item) -> tuple[str, str]:
           clearAndRefresh();
         } else {
           setBusy(null, false, 'Failed to send answer');
+        }
+      } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
+      }
+    }
+    async function submitProposedTask(itemId) {
+      const answer = _collectAnswer(itemId);
+      if (!answer.title) {
+        setBusy(null, false, 'Title required');
+        return;
+      }
+      setBusy(null, true, 'Creating task...');
+      try {
+        const r = await fetch(
+          '/api/inbox/' + itemId + '/approve-task', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'include',
+          body: JSON.stringify({answer: answer})
+        });
+        if (r.ok) {
+          setBusy(null, false, 'Task created. Loading next...');
+          clearAndRefresh();
+        } else {
+          setBusy(null, false, 'Failed to create task');
         }
       } catch(e) {
         setBusy(null, false, 'Error: ' + e.message);

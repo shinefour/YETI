@@ -19,13 +19,11 @@ from yeti.config import settings
 from yeti.memory.client import MemPalaceClient
 from yeti.models.inbox import InboxItem, InboxStore, InboxType
 from yeti.models.notes import Note
-from yeti.models.tasks import Task, TaskStore
 
 logger = logging.getLogger(__name__)
 
 _memory = MemPalaceClient()
 _inbox = InboxStore()
-_tasks = TaskStore()
 
 TRIAGE_PROMPT = """\
 You are YETI's Triage Agent. Daniel just submitted the note below.
@@ -126,7 +124,7 @@ async def _apply_triage_result(
     note: Note, result: dict
 ) -> str:
     """Apply the triage output: store drawer, add facts, create items."""
-    counts = {"facts": 0, "tasks": 0, "inbox": 0}
+    counts = {"facts": 0, "inbox": 0}
 
     wing = result.get("wing", "general").lower()
     room = result.get("room", "notes").lower()
@@ -166,20 +164,58 @@ async def _apply_triage_result(
         except Exception:
             logger.exception("Failed to add fact: %s", fact)
 
-    # 3. Create tasks for action items
+    # 3. Create inbox items for proposed action items
+    # (user reviews and approves before they become real tasks)
     for action in result.get("action_items", []):
         try:
-            task = Task(
-                title=action["title"],
-                assignee=action.get("assignee", ""),
-                due_date=action.get("due_date"),
-                context=action.get("context", ""),
-                source=f"note:{note.id}",
+            _inbox.create(
+                InboxItem(
+                    type=InboxType.PROPOSED_ACTION,
+                    title=action["title"],
+                    summary=action.get("context", "")
+                    or "Proposed task from triage",
+                    answer_schema=[
+                        {
+                            "key": "title",
+                            "label": "Task title",
+                            "type": "text",
+                            "value": action["title"],
+                        },
+                        {
+                            "key": "assignee",
+                            "label": "Assignee",
+                            "type": "text",
+                            "value": action.get(
+                                "assignee", ""
+                            )
+                            or "Daniel",
+                        },
+                        {
+                            "key": "due_date",
+                            "label": "Due date (YYYY-MM-DD)",
+                            "type": "text",
+                            "value": action.get("due_date")
+                            or "",
+                        },
+                        {
+                            "key": "project",
+                            "label": "Project",
+                            "type": "text",
+                            "value": "",
+                        },
+                    ],
+                    quick_actions=["discard"],
+                    source_note_id=note.id,
+                    payload={"context": action.get("context", "")},
+                    source=f"triage:{note.id}",
+                    confidence=0.7,
+                )
             )
-            _tasks.create(task)
-            counts["tasks"] += 1
+            counts["inbox"] += 1
         except Exception:
-            logger.exception("Failed to create task: %s", action)
+            logger.exception(
+                "Failed to create proposed action: %s", action
+            )
 
     # 4. Create inbox items for clarifications (schema-driven)
     for clarification in result.get("clarifications", []):
@@ -222,8 +258,7 @@ async def _apply_triage_result(
     summary_parts = [
         f"Stored {wing}/{room}",
         f"{counts['facts']} fact(s)",
-        f"{counts['tasks']} task(s)",
-        f"{counts['inbox']} review(s)",
+        f"{counts['inbox']} inbox item(s)",
     ]
     return ", ".join(summary_parts)
 

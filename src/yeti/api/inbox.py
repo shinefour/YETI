@@ -208,7 +208,7 @@ async def answer_inbox_item(item_id: str, body: dict):
 @router.post("/{item_id}/convert-to-task")
 async def convert_to_task(item_id: str, body: dict):
     """Convert an inbox item into a Task and resolve the inbox item."""
-    from yeti.models.tasks import Task, TaskStore
+    from yeti.models.tasks import Task, TaskStatus, TaskStore
 
     item = store.get(item_id)
     if not item:
@@ -226,12 +226,53 @@ async def convert_to_task(item_id: str, body: dict):
             source=f"inbox:{item_id}",
             project=project,
             context=item.summary,
+            status=TaskStatus.ACTIVE,
         )
     )
 
     # Resolve the inbox item
     store.resolve(
         item_id, "converted_to_task", note=task.id
+    )
+
+    return {"task": task.model_dump()}
+
+
+@router.post("/{item_id}/approve-task")
+async def approve_task(item_id: str, body: dict):
+    """Approve a PROPOSED_ACTION inbox item, creating an active task."""
+    from yeti.models.tasks import Task, TaskStatus, TaskStore
+
+    item = store.get(item_id)
+    if not item:
+        return JSONResponse(
+            {"error": "Not found"}, status_code=404
+        )
+
+    answer = body.get("answer", {})
+    title = (answer.get("title") or item.title).strip()
+    if not title:
+        return JSONResponse(
+            {"error": "title required"}, status_code=400
+        )
+
+    task_store = TaskStore()
+    task = task_store.create(
+        Task(
+            title=title,
+            assignee=answer.get("assignee", "") or "",
+            due_date=answer.get("due_date") or None,
+            project=answer.get("project", "") or "",
+            context=item.summary,
+            source=f"inbox:{item_id}",
+            status=TaskStatus.ACTIVE,
+        )
+    )
+
+    store.resolve(
+        item_id,
+        "approved_as_task",
+        note=task.id,
     )
 
     return {"task": task.model_dump()}

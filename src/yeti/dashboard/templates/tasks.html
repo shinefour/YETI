@@ -4,17 +4,16 @@
 <div class="page-content">
 <h1>Tasks</h1>
 
-<div class="grid grid-2">
-    <div class="card"
-         hx-get="/dashboard/partials/tasks?status=pending_review"
-         hx-trigger="load, every 30s" hx-swap="innerHTML">
-        <h2>Pending Review</h2>
-    </div>
-    <div class="card"
-         hx-get="/dashboard/partials/tasks?status=active"
-         hx-trigger="load, every 30s" hx-swap="innerHTML">
-        <h2>Active</h2>
-    </div>
+<div class="card"
+     hx-get="/dashboard/partials/tasks?status=active"
+     hx-trigger="load, every 30s" hx-swap="innerHTML">
+    <h2>Active</h2>
+</div>
+
+<div class="card"
+     hx-get="/dashboard/partials/tasks?status=blocked"
+     hx-trigger="load, every 30s" hx-swap="innerHTML">
+    <h2>Blocked</h2>
 </div>
 
 <div class="card"
@@ -22,5 +21,30 @@
      hx-trigger="load" hx-swap="innerHTML">
     <h2>Completed</h2>
 </div>
+
+<script>
+async function markTaskDone(taskId) {
+    const r = await fetch('/api/tasks/' + taskId + '/status', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({status: 'completed'})
+    });
+    if (r.ok) {
+        document.body.dispatchEvent(new Event('refresh'));
+    }
+}
+async function markTaskCancelled(taskId) {
+    const r = await fetch('/api/tasks/' + taskId + '/status', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({status: 'cancelled'})
+    });
+    if (r.ok) {
+        document.body.dispatchEvent(new Event('refresh'));
+    }
+}
+</script>
 </div>
 {% endblock %}
