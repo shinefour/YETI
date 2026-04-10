@@ -590,169 +590,180 @@ def _resolve_btn(
 
 
 def _render_inbox_body(item) -> tuple[str, str]:
-    """Render the body and action buttons for an inbox item by type."""
+    """Render the body and action buttons for an inbox item.
+
+    Generic schema-driven approach: render the answer_schema as a form.
+    Image fallback is the only special-cased renderer.
+    """
     from yeti.models.inbox import InboxType
 
     payload = item.payload or {}
 
-    if item.type == InboxType.DISAMBIGUATION:
-        return _render_disambiguation(item, payload)
-
-    if item.type == InboxType.PERSON_UPDATE:
-        return _render_person_update(item, payload)
-
-    # Image fallback: low-confidence OCR with image to review
+    # Image fallback is the only special case (image is the form)
     if (
         item.type == InboxType.NOTIFICATION
         and payload.get("image_id")
     ):
         return _render_image_fallback(item, payload)
 
-    # Default (decisions, proposed actions, generic notifications):
-    # show payload + universal action set
-    return _render_default(item, payload)
+    return _render_schema_form(item)
 
 
-def _render_disambiguation(item, payload: dict) -> tuple[str, str]:
-    candidates = payload.get("candidates", [])
-    cards = "".join(
-        f'<div class="card" style="margin:0.5rem 0;'
-        f'cursor:pointer;border-left:3px solid var(--accent)" '
-        f'onclick="resolveDisamb(\'{item.id}\', '
-        f"this.dataset.choice)\" "
-        f'data-choice="{_extract_name(c)}">'
-        f'<div style="font-size:0.85rem">{c.get("summary", "")}</div>'
-        f'<div class="muted" style="font-size:0.7rem;'
-        f'margin-top:0.3rem">{c.get("wing", "")}/'
-        f'{c.get("room", "")}</div></div>'
-        for c in candidates
-    )
-    body = f"""
-    <p class="muted" style="margin-top:1rem">
-      Pick the right person for "{payload.get('name', '')}"
-      (in {payload.get('wing_context', '?')} context):
-    </p>
-    {cards}
-    <script>
-    function resolveDisamb(itemId, choice) {{
-      fetch('/api/inbox/' + itemId + '/resolve', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        credentials: 'include',
-        body: JSON.stringify({{resolution: choice}})
-      }}).then(() => {{
-        document.getElementById('inbox-active')
-          .dispatchEvent(new Event('refresh'));
-      }});
-    }}
-    </script>
-    """
-    actions = _resolve_btn(
-        item.id, "None of these", "none_match", "ghost"
-    )
-    return body, actions
+def _render_schema_form(item) -> tuple[str, str]:
+    """Render a clarification with answer_schema as a generic form."""
+    schema = item.answer_schema or [
+        {"key": "answer", "label": "", "type": "textarea"}
+    ]
+    quick_actions = item.quick_actions or [
+        "discard",
+        "convert_to_task",
+    ]
 
-
-def _render_person_update(item, payload: dict) -> tuple[str, str]:
-    body = (
-        f'<div style="margin-top:1rem">'
-        f'<input type="text" id="full-name-{item.id}" '
-        f'placeholder="Full name '
-        f'(e.g. {payload.get("name", "")} Surname)" '
-        f'style="width:100%;padding:0.6rem 0.75rem;'
-        f"background:var(--bg);border:1px solid var(--border);"
-        f"border-radius:4px;color:var(--text);"
-        f'font-size:0.9rem;font-family:inherit"/>'
-        f"</div>"
-    )
-    actions = (
-        f'<button class="btn btn-success" '
-        f"onclick=\"resolvePerson('{item.id}')\">Save</button>"
-        + _resolve_btn(item.id, "Ignore", "ignored", "ghost")
-        + "<script>function resolvePerson(id) {"
-        "const name = document.getElementById"
-        "('full-name-' + id).value;"
-        "fetch('/api/inbox/' + id + '/resolve', {"
-        "method:'POST',"
-        "headers:{'Content-Type':'application/json'},"
-        "credentials:'include',"
-        "body: JSON.stringify({resolution: name || 'saved'})"
-        "}).then(() => document.getElementById('inbox-active')"
-        ".dispatchEvent(new Event('refresh')));"
-        "}</script>"
-    )
-    return body, actions
-
-
-def _render_default(item, payload: dict) -> tuple[str, str]:
-    """Default rendering for decision/proposed-action/notification items.
-
-    Provides a universal action set:
-    - Convert to task (for things needing follow-up)
-    - Mark resolved (decided in your head)
-    - Skip / not relevant (just discard)
-    """
-    import json as _json
-
-    note_id = payload.get("note_id", "")
+    # Source note link
     note_link = ""
-    if note_id:
+    if item.source_note_id:
         note_link = (
-            f'<div style="margin-top:0.75rem">'
-            f'<a href="/api/notes/{note_id}" target="_blank" '
+            f'<div style="margin-bottom:0.75rem">'
+            f'<a href="/api/notes/{item.source_note_id}" '
+            f'target="_blank" '
             f'style="color:var(--accent);font-size:0.8rem">'
             f"View source note →</a></div>"
         )
 
-    payload_html = ""
-    if payload:
-        # Filter out note_id since we link to it
-        clean = {k: v for k, v in payload.items() if k != "note_id"}
-        if clean:
-            payload_html = (
-                f'<details style="margin-top:1rem">'
-                f'<summary class="muted" '
-                f'style="cursor:pointer;font-size:0.8rem">'
-                f"Details</summary>"
-                f'<pre style="white-space:pre-wrap;'
-                f'font-size:0.75rem;color:var(--text-dim);'
-                f'margin-top:0.5rem">'
-                f"{_json.dumps(clean, indent=2)}</pre>"
-                f"</details>"
+    # Render fields
+    field_html = []
+    for idx, field in enumerate(schema):
+        key = field.get("key", f"field_{idx}")
+        label = field.get("label", "")
+        ftype = field.get("type", "text")
+        value = field.get("value", "") or ""
+        options = field.get("options", [])
+        input_id = f"answer-{item.id}-{key}"
+
+        label_html = (
+            f'<label class="muted" '
+            f'style="font-size:0.75rem;display:block;'
+            f'margin-bottom:0.25rem">{label}</label>'
+            if label
+            else ""
+        )
+
+        if ftype == "choice" and options:
+            choices = "".join(
+                f'<button type="button" class="btn btn-sm '
+                f'choice-btn" data-key="{key}" '
+                f'data-input="{input_id}" '
+                f'data-value="{opt}" '
+                f"onclick=\"pickChoice(this)\">{opt}</button>"
+                for opt in options
             )
+            input_html = (
+                f'<input type="hidden" id="{input_id}" '
+                f'data-key="{key}" value="{value}"/>'
+                f'<div class="btn-row" style="margin-bottom:0.75rem">'
+                f"{choices}</div>"
+            )
+        elif ftype == "textarea":
+            input_html = (
+                f'<textarea id="{input_id}" data-key="{key}" '
+                f'rows="3" '
+                f'style="width:100%;padding:0.55rem 0.75rem;'
+                f"background:var(--bg);"
+                f"border:1px solid var(--border);"
+                f"border-radius:4px;color:var(--text);"
+                f"font-size:0.85rem;font-family:inherit;"
+                f"resize:vertical;outline:none;"
+                f'margin-bottom:0.75rem">{value}</textarea>'
+            )
+        else:  # text
+            input_html = (
+                f'<input type="text" id="{input_id}" '
+                f'data-key="{key}" value="{value}" '
+                f'style="width:100%;padding:0.55rem 0.75rem;'
+                f"background:var(--bg);"
+                f"border:1px solid var(--border);"
+                f"border-radius:4px;color:var(--text);"
+                f"font-size:0.85rem;font-family:inherit;"
+                f'outline:none;margin-bottom:0.75rem"/>'
+            )
+
+        field_html.append(
+            f'<div>{label_html}{input_html}</div>'
+        )
 
     body = f"""
     {note_link}
-    {payload_html}
+    <form id="answer-form-{item.id}" onsubmit="return false">
+      {''.join(field_html)}
+    </form>
     """
 
-    actions = (
-        f'<button class="btn btn-primary" '
-        f"onclick=\"convertToTask('{item.id}', '{_escape(item.title)}')\">"
-        f"Convert to task</button>"
-        + _resolve_btn(
-            item.id, "Mark resolved", "resolved", "success"
-        )
-        + _resolve_btn(item.id, "Skip", "skipped", "ghost")
-        + """
-        <script>
-        async function convertToTask(itemId, defaultTitle) {
-          const title = prompt('Task title:', defaultTitle);
-          if (!title) return;
-          const r = await fetch('/api/inbox/' + itemId + '/convert-to-task', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            credentials: 'include',
-            body: JSON.stringify({title: title})
-          });
-          if (r.ok) {
-            document.getElementById('inbox-active')
-              .dispatchEvent(new Event('refresh'));
-          }
-        }
-        </script>
-        """
+    # Build actions
+    submit_btn = (
+        f'<button type="button" class="btn btn-primary" '
+        f"onclick=\"submitAnswer('{item.id}')\">Send answer</button>"
     )
+
+    quick_action_buttons = []
+    if "convert_to_task" in quick_actions:
+        quick_action_buttons.append(
+            f'<button type="button" class="btn btn-ghost" '
+            f"onclick=\"convertToTask('{item.id}', "
+            f"'{_escape(item.title)}')\">Convert to task</button>"
+        )
+    if "discard" in quick_actions:
+        quick_action_buttons.append(
+            _resolve_btn(
+                item.id, "Discard", "discarded", "ghost"
+            )
+        )
+
+    actions = submit_btn + "".join(quick_action_buttons) + """
+    <script>
+    function pickChoice(btn) {
+      const input = document.getElementById(btn.dataset.input);
+      input.value = btn.dataset.value;
+      // Visual feedback: clear sibling selection, mark this one
+      const siblings = btn.parentElement.querySelectorAll('.choice-btn');
+      siblings.forEach(s => s.classList.remove('btn-primary'));
+      siblings.forEach(s => s.classList.add('btn-ghost'));
+      btn.classList.remove('btn-ghost');
+      btn.classList.add('btn-primary');
+    }
+    async function submitAnswer(itemId) {
+      const form = document.getElementById('answer-form-' + itemId);
+      const inputs = form.querySelectorAll('[data-key]');
+      const answer = {};
+      inputs.forEach(el => {
+        if (el.value) answer[el.dataset.key] = el.value;
+      });
+      const r = await fetch('/api/inbox/' + itemId + '/answer', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({answer: answer})
+      });
+      if (r.ok) {
+        document.getElementById('inbox-active')
+          .dispatchEvent(new Event('refresh'));
+      }
+    }
+    async function convertToTask(itemId, defaultTitle) {
+      const title = prompt('Task title:', defaultTitle);
+      if (!title) return;
+      const r = await fetch('/api/inbox/' + itemId + '/convert-to-task', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({title: title})
+      });
+      if (r.ok) {
+        document.getElementById('inbox-active')
+          .dispatchEvent(new Event('refresh'));
+      }
+    }
+    </script>
+    """
     return body, actions
 
 
@@ -861,15 +872,6 @@ def _render_image_fallback(
     </script>
     """
     return body, actions
-
-
-def _extract_name(candidate: dict) -> str:
-    """Extract the contact name from a candidate's summary text."""
-    text = candidate.get("summary", "")
-    for line in text.split("\n"):
-        if line.startswith("Name:"):
-            return line.split(":", 1)[1].strip()
-    return text[:50]
 
 
 def _dot_for(state: str) -> str:

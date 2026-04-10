@@ -36,17 +36,33 @@ class InboxStatus(enum.StrEnum):
 class InboxItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     type: InboxType
-    title: str
-    summary: str = ""
+    title: str  # the question
+    summary: str = ""  # context for the question
     payload: dict[str, Any] = Field(default_factory=dict)
     source: str = ""
+    source_note_id: str = ""  # link back to the originating note
     confidence: float = 1.0
     status: InboxStatus = InboxStatus.PENDING
+
+    # Schema-driven answer form. If empty, frontend shows a single
+    # text box. Each field: {key, label, type, value?, options?}.
+    # Types: text, textarea, choice
+    answer_schema: list[dict[str, Any]] = Field(
+        default_factory=list
+    )
+
+    # Override actions available on this item
+    # (e.g. discard, convert_to_task). Always includes the universal
+    # set if not specified.
+    quick_actions: list[str] = Field(
+        default_factory=list
+    )
+
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
     resolved_at: str | None = None
-    resolution: str = ""  # approved/rejected/edited/picked/etc
+    resolution: str = ""  # answered/discarded/converted_to_task/etc
     resolution_note: str = ""
 
 
@@ -83,14 +99,29 @@ class InboxStore:
                     summary TEXT DEFAULT '',
                     payload TEXT DEFAULT '{}',
                     source TEXT DEFAULT '',
+                    source_note_id TEXT DEFAULT '',
                     confidence REAL DEFAULT 1.0,
                     status TEXT DEFAULT 'pending',
+                    answer_schema TEXT DEFAULT '[]',
+                    quick_actions TEXT DEFAULT '[]',
                     created_at TEXT NOT NULL,
                     resolved_at TEXT,
                     resolution TEXT DEFAULT '',
                     resolution_note TEXT DEFAULT ''
                 )
             """)
+            # Add new columns if they don't exist (migration)
+            for col, default in [
+                ("source_note_id", "TEXT DEFAULT ''"),
+                ("answer_schema", "TEXT DEFAULT '[]'"),
+                ("quick_actions", "TEXT DEFAULT '[]'"),
+            ]:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE inbox ADD COLUMN {col} {default}"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_inbox_status
                 ON inbox(status)
@@ -119,9 +150,11 @@ class InboxStore:
                 """
                 INSERT INTO inbox
                     (id, type, title, summary, payload, source,
-                     confidence, status, created_at, resolved_at,
+                     source_note_id, confidence, status,
+                     answer_schema, quick_actions,
+                     created_at, resolved_at,
                      resolution, resolution_note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -130,8 +163,11 @@ class InboxStore:
                     item.summary,
                     json.dumps(item.payload),
                     item.source,
+                    item.source_note_id,
                     item.confidence,
                     item.status.value,
+                    json.dumps(item.answer_schema),
+                    json.dumps(item.quick_actions),
                     item.created_at,
                     item.resolved_at,
                     item.resolution,
@@ -147,6 +183,18 @@ class InboxStore:
             data["payload"] = json.loads(data["payload"] or "{}")
         except json.JSONDecodeError:
             data["payload"] = {}
+        try:
+            data["answer_schema"] = json.loads(
+                data.get("answer_schema") or "[]"
+            )
+        except json.JSONDecodeError:
+            data["answer_schema"] = []
+        try:
+            data["quick_actions"] = json.loads(
+                data.get("quick_actions") or "[]"
+            )
+        except json.JSONDecodeError:
+            data["quick_actions"] = []
         return InboxItem(**data)
 
     def get(self, item_id: str) -> InboxItem | None:

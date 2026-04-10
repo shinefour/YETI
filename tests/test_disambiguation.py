@@ -106,9 +106,15 @@ async def test_multiple_matches_creates_disambiguation(
     assert count == 1
     items = inbox_store.list_pending()
     assert items[0].type == InboxType.DISAMBIGUATION
-    assert items[0].payload["name"] == "Michal"
+    assert items[0].payload["mentioned_as"] == "Michal"
     assert items[0].payload["wing_context"] == "conetic"
-    assert len(items[0].payload["candidates"]) == 2
+    # Schema has a choice field with the candidate options
+    schema = items[0].answer_schema
+    choice_field = next(
+        f for f in schema if f.get("type") == "choice"
+    )
+    # 2 candidates + "other"
+    assert len(choice_field["options"]) == 3
 
 
 @pytest.mark.asyncio

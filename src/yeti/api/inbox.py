@@ -1,5 +1,6 @@
 """Inbox API routes — fast-resolve items."""
 
+import json
 import logging
 
 from fastapi import APIRouter
@@ -149,6 +150,59 @@ async def _store_disambiguation_learning(
         )
     except Exception:
         logger.exception("Failed to store disambiguation learning")
+
+
+@router.post("/{item_id}/answer")
+async def answer_inbox_item(item_id: str, body: dict):
+    """Process a clarification answer and update KG facts."""
+    from yeti.agents.clarify import interpret_answer
+    from yeti.models.notes import NoteStore
+
+    item = store.get(item_id)
+    if not item:
+        return JSONResponse(
+            {"error": "Not found"}, status_code=404
+        )
+
+    answer = body.get("answer", {})
+
+    # Get source note excerpt if available
+    note_excerpt = ""
+    if item.source_note_id:
+        notes = NoteStore()
+        note = notes.get(item.source_note_id)
+        if note:
+            note_excerpt = note.content
+
+    try:
+        result = await interpret_answer(
+            question=item.title,
+            context=item.summary,
+            answer=answer,
+            note_excerpt=note_excerpt,
+        )
+    except Exception as e:
+        logger.exception("Answer interpretation failed")
+        return JSONResponse(
+            {"error": str(e)}, status_code=500
+        )
+
+    store.resolve(
+        item_id,
+        "answered",
+        note=json.dumps(
+            {
+                "answer": answer,
+                "facts_applied": result["applied"],
+                "summary": result["summary"],
+            }
+        ),
+    )
+
+    return {
+        "facts_applied": result["applied"],
+        "summary": result["summary"],
+    }
 
 
 @router.post("/{item_id}/convert-to-task")

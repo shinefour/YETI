@@ -29,14 +29,12 @@ _tasks = TaskStore()
 
 TRIAGE_PROMPT = """\
 You are YETI's Triage Agent. Daniel just submitted the note below.
-Your job is to extract structured data so YETI can store it correctly.
+Your job is to extract structured data so YETI can store it correctly,
+and to ask Daniel concrete clarifying questions about anything ambiguous.
 
 Today's date: {today}
 
 The note may be a meeting note, email, idea, status update, or other.
-
-Search the existing memory before deciding on names — call \
-mempalace_search if needed to find existing people or projects.
 
 Return ONLY a JSON object with this shape:
 {{
@@ -55,13 +53,38 @@ Return ONLY a JSON object with this shape:
     {{"title": "...", "assignee": "Daniel|other name", \
 "due_date": "YYYY-MM-DD or null", "context": "..."}}
   ],
-  "review_required": [
-    {{"reason": "why this needs review", "summary": "..."}}
+  "clarifications": [
+    {{
+      "question": "Concrete black-or-white question",
+      "context": "Brief context why this matters",
+      "schema": [
+        {{"key": "field_name", "label": "Label",
+          "type": "text|textarea|choice",
+          "value": "default value or empty",
+          "options": ["only for type=choice"]}}
+      ]
+    }}
   ]
 }}
 
-Only include facts and action items you are confident about. \
-If anything is ambiguous, list it under review_required instead.
+CRITICAL RULES for clarifications:
+- Each clarification must be a CONCRETE, BLACK-OR-WHITE question.
+- BAD: "Multiple team references need clarification"
+- GOOD: "Is 'Stellar team' the same as 'Stellar Group'?" \
+with schema [{{key:"answer", type:"choice", options:["yes","no"]}}]
+- BAD: "Verify relationships"
+- GOOD: "Who is 'Anni Mononen'?" with schema \
+[{{key:"role", type:"text"}}, {{key:"company", type:"text"}}]
+- Questions must clarify INTERPRETATION ONLY. Never ask Daniel \
+to make a decision that triggers external action.
+- Prefer choice fields for binary or short-list answers.
+- Use text fields for short open answers (names, dates).
+- Use textarea only for genuinely long context.
+- If you have a guess, prefill the "value" field so Daniel just confirms.
+- If a fact is fully clear, just add it to facts. Only create a \
+clarification when you're genuinely uncertain.
+
+Only include facts and action items you are confident about.
 
 NOTE CONTENT:
 ---
@@ -158,15 +181,25 @@ async def _apply_triage_result(
         except Exception:
             logger.exception("Failed to create task: %s", action)
 
-    # 4. Create inbox items for things needing review
-    for review in result.get("review_required", []):
+    # 4. Create inbox items for clarifications (schema-driven)
+    for clarification in result.get("clarifications", []):
         try:
             _inbox.create(
                 InboxItem(
                     type=InboxType.DECISION,
-                    title=review.get("reason", "Review needed"),
-                    summary=review.get("summary", ""),
+                    title=clarification.get(
+                        "question", "Clarification needed"
+                    ),
+                    summary=clarification.get("context", ""),
+                    answer_schema=clarification.get(
+                        "schema", []
+                    ),
+                    quick_actions=[
+                        "discard",
+                        "convert_to_task",
+                    ],
                     payload={"note_id": note.id},
+                    source_note_id=note.id,
                     source=f"triage:{note.id}",
                     confidence=0.5,
                 )
@@ -174,7 +207,8 @@ async def _apply_triage_result(
             counts["inbox"] += 1
         except Exception:
             logger.exception(
-                "Failed to create inbox item: %s", review
+                "Failed to create clarification: %s",
+                clarification,
             )
 
     # 5. Disambiguate people mentioned
@@ -219,19 +253,43 @@ async def _resolve_people(
         matches = await _find_person_matches(name)
 
         if len(matches) == 0:
-            # Unknown person — create inbox item for new contact
+            # Unknown person — schema-driven new contact form
             _inbox.create(
                 InboxItem(
                     type=InboxType.PERSON_UPDATE,
-                    title=f"New person mentioned: {name}",
+                    title=f"Who is '{name}'?",
                     summary=(
-                        f"YETI doesn't know '{name}'. "
-                        f"Mentioned in note '{note.title or 'untitled'}'."
+                        f"First mention of '{name}' in note "
+                        f"'{note.title or 'untitled'}'."
                     ),
+                    answer_schema=[
+                        {
+                            "key": "full_name",
+                            "label": "Full name",
+                            "type": "text",
+                            "value": name,
+                        },
+                        {
+                            "key": "role",
+                            "label": "Role / title",
+                            "type": "text",
+                        },
+                        {
+                            "key": "company",
+                            "label": "Company",
+                            "type": "text",
+                        },
+                        {
+                            "key": "context",
+                            "label": "Notes (optional)",
+                            "type": "textarea",
+                        },
+                    ],
+                    quick_actions=["discard"],
+                    source_note_id=note.id,
                     payload={
-                        "name": name,
+                        "mentioned_as": name,
                         "wing_context": wing,
-                        "note_id": note.id,
                     },
                     source=f"triage:{note.id}",
                     confidence=0.7,
@@ -248,29 +306,40 @@ async def _resolve_people(
             )
 
         else:
-            # Multiple matches — disambiguation needed
+            # Multiple matches — disambiguation as choice schema
+            candidate_names = [
+                _extract_candidate_name(m) for m in matches
+            ]
             _inbox.create(
                 InboxItem(
                     type=InboxType.DISAMBIGUATION,
                     title=f"Which '{name}' is this?",
                     summary=(
-                        f"Found {len(matches)} possible matches "
-                        f"for '{name}' mentioned in '{note.title or 'note'}'."
+                        f"In '{note.title or 'note'}' "
+                        f"({wing} context). Pick one or type "
+                        f"a different name."
                     ),
+                    answer_schema=[
+                        {
+                            "key": "chosen",
+                            "label": "Pick the right one",
+                            "type": "choice",
+                            "options": [
+                                *candidate_names,
+                                "other (type below)",
+                            ],
+                        },
+                        {
+                            "key": "other_name",
+                            "label": "Or type a different name",
+                            "type": "text",
+                        },
+                    ],
+                    quick_actions=["discard"],
+                    source_note_id=note.id,
                     payload={
-                        "name": name,
+                        "mentioned_as": name,
                         "wing_context": wing,
-                        "note_id": note.id,
-                        "candidates": [
-                            {
-                                "summary": m.get(
-                                    "text", ""
-                                )[:200],
-                                "wing": m.get("wing", ""),
-                                "room": m.get("room", ""),
-                            }
-                            for m in matches
-                        ],
                     },
                     source=f"triage:{note.id}",
                     confidence=0.4,
@@ -279,6 +348,16 @@ async def _resolve_people(
             inbox_created += 1
 
     return inbox_created
+
+
+def _extract_candidate_name(match: dict) -> str:
+    """Extract a clean candidate name from a memory search match."""
+    text = match.get("text", "")
+    for line in text.split("\n"):
+        line = line.strip()
+        if line.startswith("Name:"):
+            return line.split(":", 1)[1].strip()
+    return text[:50] if text else "unknown"
 
 
 async def _find_person_matches(name: str) -> list[dict]:
