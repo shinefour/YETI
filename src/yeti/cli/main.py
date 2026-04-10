@@ -10,7 +10,36 @@ from rich.table import Table
 app = typer.Typer(name="yeti", help="Your Everyday Task Intelligence")
 console = Console()
 
-DEFAULT_API_URL = "http://localhost:8000"
+DEFAULT_API_URL = "https://yeti.diconve.com"
+
+
+def _load_env_file() -> dict:
+    """Load values from .env (if present in cwd or repo root)."""
+    import os
+    from pathlib import Path
+
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[3] / ".env",
+    ]
+    for path in candidates:
+        if path.exists():
+            values = {}
+            for line in path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                values[k.strip()] = v.strip()
+            for k, v in values.items():
+                os.environ.setdefault(k, v)
+            return values
+    return {}
+
+
+_load_env_file()
 
 
 def _api_url() -> str:
