@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Bulk markdown ingestion into YETI MemPalace.
+
+Walks the source directories, applies wing/room mapping rules,
+and stores each markdown file as a drawer via the YETI API.
+
+Run from the YETI repo root:
+    .venv/bin/python bin/ingest_markdown
+"""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+import httpx
+
+ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE = ROOT / ".env"
+
+
+def _load_env():
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env()
+
+API_URL = os.environ.get("YETI_API_URL", "https://yeti.diconve.com")
+API_KEY = os.environ.get("YETI_DASHBOARD_API_KEY", "")
+HEADERS = {"x-api-key": API_KEY} if API_KEY else {}
+
+OBSIDIAN = Path("/Users/dmundt/Desktop/obsidian")
+WORKSPACE = Path("/Users/dmundt/Desktop/WORKSPACE")
+
+SKIP_DIRS = {".venv", ".obsidian", ".claude", ".git", "Private", "node_modules"}
+SKIP_FILES = {"LICENSE.md", "CHANGELOG.md", "CONTRIBUTING.md"}
+
+
+def _should_skip(path: Path) -> bool:
+    """Check if path should be skipped."""
+    for part in path.parts:
+        if part in SKIP_DIRS:
+            return True
+    if path.name in SKIP_FILES:
+        return True
+    return False
+
+
+def _slug(name: str) -> str:
+    """Convert directory name to a wing/room slug."""
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", name.lower()).strip("-")
+    return s or "general"
+
+
+def _route(path: Path) -> tuple[str, str] | None:
+    """Determine wing and room for a markdown file. Returns None to skip."""
+    try:
+        rel = path.resolve().relative_to(OBSIDIAN.resolve())
+        parts = rel.parts
+        # obsidian/Conetic/<Subdir>/file.md -> wing=conetic, room=<subdir>
+        if parts[0] == "Conetic":
+            if len(parts) >= 3:
+                return ("conetic", _slug(parts[1]))
+            return ("conetic", "general")
+        if parts[0] == "castlabs":
+            # castlabs/castlabs/Above/* -> above/architecture
+            # castlabs/castlabs/Clients/* -> castlabs/clients
+            # castlabs/castlabs/* -> castlabs/services
+            inner = parts[2:] if len(parts) > 2 else parts[1:]
+            if inner and inner[0] == "Above":
+                return ("above", "architecture")
+            if inner and inner[0] == "Clients":
+                return ("castlabs", "clients")
+            return ("castlabs", "services")
+        if parts[0] == "ContentPlaform":
+            return ("above", "contentplatform")
+        return None
+    except ValueError:
+        pass
+
+    try:
+        rel = path.resolve().relative_to(WORKSPACE.resolve())
+        parts = rel.parts
+        # WORKSPACE/GlobalStudio/**/ARCHITECTURE.md -> globalstudio/architecture
+        if parts[0] == "GlobalStudio" and path.name == "ARCHITECTURE.md":
+            return ("globalstudio", "architecture")
+        # WORKSPACE/Voyager/tasks/**/PROGRESS.md -> conetic/projects
+        if parts[0] == "Voyager" and path.name == "PROGRESS.md":
+            return ("conetic", "projects")
+        return None
+    except ValueError:
+        return None
+
+
+def _store(path: Path, wing: str, room: str) -> bool:
+    """Store a file as a drawer."""
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        print(f"  ! {path.name}: read error {e}")
+        return False
+
+    if not content.strip():
+        return False
+
+    # Prepend a header so the source is preserved
+    header = f"# Source: {path}\n\n"
+    full = header + content
+
+    try:
+        r = httpx.post(
+            f"{API_URL}/api/memory/store",
+            headers=HEADERS,
+            json={
+                "content": full,
+                "wing": wing,
+                "room": room,
+                "source": str(path),
+            },
+            timeout=120,
+        )
+        if not r.is_success:
+            print(f"  ! {path.name}: HTTP {r.status_code}")
+            return False
+        data = r.json()
+        if "error" in data:
+            print(f"  ! {path.name}: {data['error']}")
+            return False
+        return True
+    except httpx.HTTPError as e:
+        print(f"  ! {path.name}: {e}")
+        return False
+
+
+def main():
+    if not API_KEY:
+        print("ERROR: YETI_DASHBOARD_API_KEY not set")
+        sys.exit(1)
+
+    sources = []
+    for root in [OBSIDIAN, WORKSPACE]:
+        if not root.exists():
+            print(f"  ! Source not found: {root}")
+            continue
+        for path in root.rglob("*.md"):
+            if _should_skip(path):
+                continue
+            target = _route(path)
+            if not target:
+                continue
+            sources.append((path, target[0], target[1]))
+
+    print(f"Found {len(sources)} files to ingest")
+    print()
+
+    by_wing: dict[str, int] = {}
+    failed = 0
+    for path, wing, room in sources:
+        ok = _store(path, wing, room)
+        if ok:
+            by_wing[wing] = by_wing.get(wing, 0) + 1
+            print(f"  + {wing}/{room}: {path.name}")
+        else:
+            failed += 1
+
+    print()
+    print("=== Summary ===")
+    for wing, count in sorted(by_wing.items()):
+        print(f"  {wing}: {count}")
+    print(f"  Failed: {failed}")
+    total = sum(by_wing.values())
+    print(f"  Total stored: {total}")
+
+
+if __name__ == "__main__":
+    main()

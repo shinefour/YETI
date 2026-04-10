@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+"""Seed YETI MemPalace with initial business context.
+
+Adds Daniel's profile, companies, key people, and knowledge graph facts
+based on base_knowledge/startingpoint.md and the JD PDF.
+
+Run from the YETI repo root:
+    .venv/bin/python bin/seed_business_context
+"""
+
+import os
+import sys
+from pathlib import Path
+
+import httpx
+
+ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE = ROOT / ".env"
+
+
+def _load_env():
+    """Load .env file."""
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env()
+
+API_URL = os.environ.get(
+    "YETI_API_URL", "https://yeti.diconve.com"
+)
+API_KEY = os.environ.get("YETI_DASHBOARD_API_KEY", "")
+HEADERS = {"x-api-key": API_KEY} if API_KEY else {}
+
+
+def store_drawer(content: str, wing: str, room: str, source: str = "bootstrap"):
+    """Add a drawer via the YETI API."""
+    r = httpx.post(
+        f"{API_URL}/api/memory/store",
+        headers=HEADERS,
+        json={
+            "content": content,
+            "wing": wing,
+            "room": room,
+            "source": source,
+        },
+        timeout=60,
+    )
+    if r.is_success:
+        data = r.json()
+        if "error" in data:
+            print(f"  ! {wing}/{room}: {data['error']}")
+            return False
+        print(f"  + {wing}/{room}: {data.get('drawer_id', 'ok')}")
+        return True
+    print(f"  ! {wing}/{room}: HTTP {r.status_code}")
+    return False
+
+
+def kg_add(subject: str, predicate: str, obj: str, valid_from: str | None = None):
+    """Add a knowledge graph fact."""
+    payload = {
+        "subject": subject,
+        "predicate": predicate,
+        "object": obj,
+    }
+    if valid_from:
+        payload["valid_from"] = valid_from
+    r = httpx.post(
+        f"{API_URL}/api/memory/kg/add",
+        headers=HEADERS,
+        json=payload,
+        timeout=30,
+    )
+    if r.is_success:
+        print(f"  + {subject} --{predicate}--> {obj}")
+        return True
+    print(f"  ! KG fact failed: {r.status_code}")
+    return False
+
+
+# ============================================================
+# Daniel — profile, role, JD
+# ============================================================
+
+DANIEL_PROFILE = """\
+Name: Daniel Mundt
+Company: DICONVE S.L. (sole representative)
+Email contact: shinefour
+GitHub: shinefour
+
+Currently working with two clients:
+- GlobalStudio (product: MEST) — solo support retainer (€1000/month)
+- Conetic (Voyager product + Above joint venture) — Head of Architecture role
+
+Currently hiring on Conetic side: frontend developer + fullstack developer.
+
+Working preferences:
+- Direct, concise communication
+- Wants to focus on human skills and architectural value, not managerial overhead
+- Uses Telegram for quick interactions, dashboard for overview, deep work in Claude sessions
+- Prefers self-hosted infrastructure (Hetzner) and tools that respect data sovereignty
+"""
+
+# ============================================================
+# DICONVE
+# ============================================================
+
+DICONVE = """\
+DICONVE S.L. — Daniel Mundt's consulting company.
+
+Active clients:
+- GlobalStudio (MEST product) — €1000/month support retainer
+- Conetic (Voyager + Above) — Head of Architecture engagement
+
+Daniel is the sole employee/representative.
+"""
+
+# ============================================================
+# GlobalStudio
+# ============================================================
+
+GLOBALSTUDIO = """\
+Client: GlobalStudio
+Product: MEST (https://www.globalmest.com)
+Engagement: €1000/month support retainer for maintenance and small tasks.
+Daniel is working alone on this account.
+
+Key contacts:
+- Ignacio Mancha (CEO)
+- Jorge Pérez
+
+Tickets and requests come from Ignacio and Jorge.
+Code repos: /Users/dmundt/Desktop/WORKSPACE/GlobalStudio
+"""
+
+# ============================================================
+# Conetic
+# ============================================================
+
+CONETIC = """\
+Client: Conetic
+Product: Voyager (working title; https://platform.coneticgroup.com)
+Daniel's role: Head of Architecture
+Direct teammate on Voyager: Michal Zawada (Head of Product)
+
+Owners:
+- Joe Carreira
+- Mariana Levy (Joe's wife)
+
+Currently no fixed dev team for platform development.
+Daniel is hiring: frontend developer + fullstack developer.
+
+Joint venture with Castlabs: "Above" — see the above wing.
+
+Code repo: /Users/dmundt/Desktop/WORKSPACE/Voyager
+Notes directory: /Users/dmundt/Desktop/obsidian/Conetic
+"""
+
+# ============================================================
+# Above
+# ============================================================
+
+ABOVE = """\
+Above — Joint venture between Conetic and Castlabs.
+Product portal: https://portal.above.aero
+CEO/CTO: Michael Stattman (also Castlabs)
+
+Castlabs side contacts:
+- Michael Stattman (CEO/CTO)
+- Andrej Peterka
+- Sebastian Annis
+- Christian Hartel
+- Roberto Celestino
+
+Above dev team:
+- Pawel Zykowski
+- Michal Martika
+- Hian Battiston
+- Ana Carolina Baptista
+
+Castlabs owns the ContentPlatform that Above is built around.
+Notes: /Users/dmundt/Desktop/obsidian/castlabs/castlabs/Above
+ContentPlatform notes: /Users/dmundt/Desktop/obsidian/ContentPlaform
+"""
+
+# ============================================================
+# Castlabs
+# ============================================================
+
+CASTLABS = """\
+Castlabs (https://castlabs.com) — Partner company on the Above joint venture.
+Owns the ContentPlatform that Above is built around.
+
+Key people (from Castlabs side):
+- Michael Stattman — CEO/CTO, also CEO/CTO of Above
+- Andrej Peterka
+- Sebastian Annis
+- Christian Hartel
+- Roberto Celestino
+
+Notes: /Users/dmundt/Desktop/obsidian/castlabs/castlabs
+"""
+
+# ============================================================
+# People — one drawer per key contact
+# ============================================================
+
+PEOPLE = [
+    ("Ignacio Mancha", "globalstudio", "CEO of GlobalStudio. Source of MEST tickets."),
+    ("Jorge Pérez", "globalstudio", "GlobalStudio team. Source of MEST tickets."),
+    ("Joe Carreira", "conetic", "Co-owner of Conetic (with wife Mariana Levy)."),
+    ("Mariana Levy", "conetic", "Co-owner of Conetic (Joe Carreira's wife)."),
+    ("Michal Zawada", "conetic", "Head of Product at Conetic. Daniel's direct teammate on Voyager."),
+    ("Michael Stattman", "above", "CEO/CTO of Above. Also CEO/CTO of Castlabs."),
+    ("Andrej Peterka", "castlabs", "Castlabs team member."),
+    ("Sebastian Annis", "castlabs", "Castlabs team member."),
+    ("Christian Hartel", "castlabs", "Castlabs team member."),
+    ("Roberto Celestino", "castlabs", "Castlabs team member."),
+    ("Pawel Zykowski", "above", "Above dev team."),
+    ("Michal Martika", "above", "Above dev team."),
+    ("Hian Battiston", "above", "Above dev team."),
+    ("Ana Carolina Baptista", "above", "Above dev team."),
+]
+
+
+def _person_drawer(name: str, related_wing: str, note: str) -> str:
+    return f"""Name: {name}
+Related to: {related_wing}
+{note}
+"""
+
+
+# ============================================================
+# Knowledge graph facts
+# ============================================================
+
+KG_FACTS = [
+    ("Daniel Mundt", "represents", "DICONVE S.L."),
+    ("DICONVE S.L.", "has client", "GlobalStudio"),
+    ("DICONVE S.L.", "has client", "Conetic"),
+    ("GlobalStudio", "has product", "MEST"),
+    ("Conetic", "has product", "Voyager"),
+    ("Conetic", "joint venture with", "Castlabs"),
+    ("Conetic", "joint venture name", "Above"),
+    ("Daniel Mundt", "role at", "Conetic"),
+    ("Daniel Mundt", "title at Conetic", "Head of Architecture"),
+    ("Daniel Mundt", "support engagement", "GlobalStudio"),
+    # People relationships
+    ("Ignacio Mancha", "role at", "GlobalStudio"),
+    ("Ignacio Mancha", "title", "CEO"),
+    ("Jorge Pérez", "works at", "GlobalStudio"),
+    ("Joe Carreira", "owns", "Conetic"),
+    ("Mariana Levy", "owns", "Conetic"),
+    ("Joe Carreira", "married to", "Mariana Levy"),
+    ("Michal Zawada", "role at", "Conetic"),
+    ("Michal Zawada", "title", "Head of Product"),
+    ("Michal Zawada", "teammate of", "Daniel Mundt"),
+    ("Michael Stattman", "role at", "Castlabs"),
+    ("Michael Stattman", "role at", "Above"),
+    ("Michael Stattman", "title at Above", "CEO/CTO"),
+    ("Andrej Peterka", "works at", "Castlabs"),
+    ("Sebastian Annis", "works at", "Castlabs"),
+    ("Christian Hartel", "works at", "Castlabs"),
+    ("Roberto Celestino", "works at", "Castlabs"),
+    ("Pawel Zykowski", "works at", "Above"),
+    ("Michal Martika", "works at", "Above"),
+    ("Hian Battiston", "works at", "Above"),
+    ("Ana Carolina Baptista", "works at", "Above"),
+    ("Castlabs", "owns", "ContentPlatform"),
+    ("Above", "built on", "ContentPlatform"),
+]
+
+
+def _read_jd():
+    """Read the JD PDF and return as text."""
+    pdf_path = ROOT / "base_knowledge" / "JD Head of Architecture.pdf"
+    if not pdf_path.exists():
+        return None
+    try:
+        import pypdf
+
+        reader = pypdf.PdfReader(str(pdf_path))
+        return "\n".join(p.extract_text() for p in reader.pages)
+    except Exception as e:
+        print(f"  ! Could not read JD PDF: {e}")
+        return None
+
+
+def main():
+    if not API_KEY:
+        print("ERROR: YETI_DASHBOARD_API_KEY not set in .env")
+        sys.exit(1)
+
+    print("Seeding business context to", API_URL)
+    print()
+
+    print("--- Daniel ---")
+    store_drawer(DANIEL_PROFILE, "daniel", "profile")
+
+    jd_text = _read_jd()
+    if jd_text:
+        store_drawer(jd_text, "daniel", "job_descriptions", source="jd_pdf")
+
+    print()
+    print("--- Companies ---")
+    store_drawer(DICONVE, "diconve", "overview")
+    store_drawer(GLOBALSTUDIO, "globalstudio", "overview")
+    store_drawer(CONETIC, "conetic", "overview")
+    store_drawer(ABOVE, "above", "overview")
+    store_drawer(CASTLABS, "castlabs", "overview")
+
+    print()
+    print("--- People ---")
+    for name, wing, note in PEOPLE:
+        store_drawer(
+            _person_drawer(name, wing, note),
+            "people",
+            "contacts",
+        )
+
+    print()
+    print("--- Knowledge graph facts ---")
+    for fact in KG_FACTS:
+        kg_add(*fact)
+
+    print()
+    print("Done. Verify with:")
+    print(f"  curl {API_URL}/api/memory/wings -H 'x-api-key: ***'")
+
+
+if __name__ == "__main__":
+    main()
