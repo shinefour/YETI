@@ -138,6 +138,8 @@ async def acompletion(
     **kwargs,
 ):
     """Drop-in replacement for litellm.acompletion with cost tracking."""
+    import asyncio
+
     spent = monthly_paid_spend()
     actual_model, fallback_from = _select_model(model, spent)
 
@@ -146,11 +148,39 @@ async def acompletion(
         kwargs.pop("api_key", None)
         kwargs["api_base"] = settings.ollama_base_url
 
-    response = await litellm.acompletion(
-        model=actual_model,
-        messages=messages,
-        **kwargs,
-    )
+    # Retry on transient Anthropic/OpenAI errors (overloaded, rate limit)
+    max_retries = 3
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            response = await litellm.acompletion(
+                model=actual_model,
+                messages=messages,
+                **kwargs,
+            )
+            break
+        except Exception as e:
+            err_str = str(e).lower()
+            transient = (
+                "overloaded" in err_str
+                or "rate limit" in err_str
+                or "529" in err_str
+                or "503" in err_str
+            )
+            if transient and attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Transient LLM error, retrying in %ds: %s",
+                    wait,
+                    err_str[:200],
+                )
+                await asyncio.sleep(wait)
+                last_error = e
+                continue
+            raise
+    else:
+        if last_error:
+            raise last_error
 
     # Capture usage
     try:
