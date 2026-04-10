@@ -3,8 +3,21 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "Running tests..."
+# Ensure Ruby + Kamal are on PATH (Homebrew-installed Ruby gems bin)
+export PATH="/usr/local/opt/ruby/bin:/usr/local/lib/ruby/gems/4.0.0/bin:$PATH"
+
+if ! command -v kamal >/dev/null 2>&1; then
+    echo "ERROR: kamal not found. Make sure Ruby + kamal gem are installed."
+    echo "  brew install ruby"
+    echo "  gem install kamal"
+    exit 1
+fi
+
+echo "Running lint..."
 .venv/bin/ruff check src/ tests/
+
+echo ""
+echo "Running tests..."
 .venv/bin/pytest tests/ -q
 
 echo ""
