@@ -190,28 +190,38 @@ async def _handle_tool_call(tool_call) -> str:
 async def chat(
     message: str, conversation_history: list[dict] | None = None
 ) -> str:
-    """Send a message to the Chat Agent and get a response."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    """Send a message to the Chat Agent and get a response.
+
+    Loops on tool calls until the model returns a final answer
+    (max 8 iterations to bound runaway tool chains).
+    """
+    messages: list = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     if conversation_history:
         messages.extend(conversation_history)
 
     messages.append({"role": "user", "content": message})
 
-    response = await litellm.acompletion(
-        model=settings.litellm_default_model,
-        messages=messages,
-        tools=TOOLS,
-        api_key=settings.anthropic_api_key,
-        max_tokens=1024,
-    )
+    max_rounds = 8
+    for _ in range(max_rounds):
+        response = await litellm.acompletion(
+            model=settings.litellm_default_model,
+            messages=messages,
+            tools=TOOLS,
+            api_key=settings.anthropic_api_key,
+            max_tokens=1024,
+        )
+        choice = response.choices[0]
 
-    choice = response.choices[0]
+        # If no tool calls, we have the final answer
+        if (
+            choice.finish_reason != "tool_calls"
+            or not choice.message.tool_calls
+        ):
+            return choice.message.content or ""
 
-    # Handle tool calls
-    if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
+        # Otherwise, run all tool calls and feed results back
         messages.append(choice.message.model_dump())
-
         for tool_call in choice.message.tool_calls:
             result = await _handle_tool_call(tool_call)
             messages.append(
@@ -222,14 +232,8 @@ async def chat(
                 }
             )
 
-        # Get final response after tool use
-        follow_up = await litellm.acompletion(
-            model=settings.litellm_default_model,
-            messages=messages,
-            tools=TOOLS,
-            api_key=settings.anthropic_api_key,
-            max_tokens=1024,
-        )
-        return follow_up.choices[0].message.content
-
-    return choice.message.content
+    # Hit max rounds — return whatever we have
+    return (
+        choice.message.content
+        or "(reached tool call limit, no final answer)"
+    )
