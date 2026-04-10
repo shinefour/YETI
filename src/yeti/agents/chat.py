@@ -5,12 +5,14 @@ import logging
 
 import litellm
 
+from yeti import llm
 from yeti.config import settings
 from yeti.memory.client import MemPalaceClient
 
 logger = logging.getLogger(__name__)
 
-litellm.set_verbose = False
+# Suppress LiteLLM verbose logging
+litellm.set_verbose = False  # type: ignore
 
 _memory = MemPalaceClient()
 
@@ -204,12 +206,15 @@ async def chat(
 
     max_rounds = 8
     for _ in range(max_rounds):
-        response = await litellm.acompletion(
+        response = await llm.acompletion(
             model=settings.litellm_default_model,
             messages=messages,
             tools=TOOLS,
             api_key=settings.anthropic_api_key,
             max_tokens=1024,
+            agent="chat",
+            task_type="conversation",
+            request_summary=message[:200],
         )
         choice = response.choices[0]
 

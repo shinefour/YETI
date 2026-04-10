@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Usage{% endblock %}
+{% block content %}
+<div class="page-content">
+<h1>Model Usage & Costs</h1>
+
+<div class="grid grid-3">
+  <div class="card" hx-get="/dashboard/partials/usage-summary"
+       hx-trigger="load, every 30s" hx-swap="innerHTML">
+    <h2>Budget</h2>
+    <div class="muted">Loading...</div>
+  </div>
+
+  <div class="card" id="today-card">
+    <h2>Today</h2>
+    <div id="today-amount" class="muted">—</div>
+  </div>
+
+  <div class="card" id="week-card">
+    <h2>This Week</h2>
+    <div id="week-amount" class="muted">—</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recent calls</h2>
+  <div id="recent-calls" hx-get="/api/usage/recent?limit=20"
+       hx-trigger="load" hx-swap="innerHTML"
+       hx-on::after-request="renderRecent(event)">
+    <div class="muted">Loading...</div>
+  </div>
+</div>
+
+<script>
+fetch('/api/usage/summary', {credentials: 'include'})
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('today-amount').textContent =
+      '$' + d.today_usd.toFixed(2);
+    document.getElementById('week-amount').textContent =
+      '$' + d.week_usd.toFixed(2);
+  });
+
+function renderRecent(evt) {
+  try {
+    const data = JSON.parse(evt.detail.xhr.responseText);
+    const rows = data.map(r => {
+      const time = new Date(r.timestamp).toLocaleString();
+      const fb = r.fallback_from
+        ? ` <span style="color:var(--yellow)">(fallback from ${r.fallback_from})</span>`
+        : '';
+      return `<div class="status-item">
+        <span class="name">${time} — ${r.model} ${r.agent ? '/' + r.agent : ''}${fb}</span>
+        <span>$${r.cost_usd.toFixed(4)}</span>
+      </div>`;
+    }).join('');
+    document.getElementById('recent-calls').innerHTML =
+      rows || '<div class="muted">No calls yet</div>';
+  } catch(e) {
+    document.getElementById('recent-calls').innerHTML =
+      '<div class="muted">Could not load recent calls</div>';
+  }
+}
+</script>
+</div>
+{% endblock %}

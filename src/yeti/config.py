@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     litellm_fast_model: str = "claude-haiku-4-5-20251001"
     litellm_local_model: str = "ollama/llama3"
 
+    # --- Budget ---
+    monthly_budget_eur: float = 100.0
+    eur_to_usd: float = 1.08
+    budget_alert_pct: int = 80
+
     # --- Ollama ---
     ollama_base_url: str = "http://ollama:11434"
 

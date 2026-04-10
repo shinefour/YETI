@@ -79,6 +79,13 @@ async def activity_page(request: Request):
     )
 
 
+@router.get("/usage", response_class=HTMLResponse)
+async def usage_page(request: Request):
+    return templates.TemplateResponse(
+        request, "usage.html", {"active": "usage"}
+    )
+
+
 # --- HTMX partials ---
 
 
@@ -104,6 +111,51 @@ async def status_sidebar_partial():
             f'<span class="name">{name}</span>{dot}</div>'
         )
     return "\n".join(rows)
+
+
+@router.get(
+    "/partials/usage-summary", response_class=HTMLResponse
+)
+async def usage_summary_partial():
+    from yeti.api.usage import usage_summary
+
+    data = await usage_summary()
+    pct = data["budget_used_pct"]
+    if pct >= 100:
+        bar_color = "var(--red)"
+    elif pct >= data["alert_threshold_pct"]:
+        bar_color = "var(--yellow)"
+    else:
+        bar_color = "var(--green)"
+
+    by_model_rows = "".join(
+        f'<div class="status-item">'
+        f'<span class="name">{m["model"][:30]}</span>'
+        f'<span>${m["cost_usd"]:.3f}</span></div>'
+        for m in data["by_model"][:5]
+    )
+
+    return f"""
+    <div style="margin-bottom: 1rem">
+      <div style="display:flex; justify-content:space-between;
+                  font-size:0.85rem; margin-bottom:0.4rem">
+        <span class="muted">This month</span>
+        <span>${data["month_paid_usd"]:.2f}
+              / ${data["budget_usd"]:.2f}</span>
+      </div>
+      <div style="background: var(--border); height: 4px;
+                  border-radius: 2px; overflow: hidden">
+        <div style="background: {bar_color}; height: 100%;
+                    width: {min(pct, 100)}%"></div>
+      </div>
+      <div style="text-align: right; font-size: 0.7rem;
+                  color: var(--text-dim); margin-top: 0.2rem">
+        {pct:.1f}% used
+      </div>
+    </div>
+    <h3 style="margin-top: 1rem">Top models</h3>
+    {by_model_rows or '<div class="muted" style="font-size:0.75rem">No usage yet</div>'}
+    """
 
 
 @router.post("/partials/chat", response_class=HTMLResponse)

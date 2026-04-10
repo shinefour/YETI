@@ -206,6 +206,7 @@
                 <a href="/dashboard/knowledge" {% if active == "knowledge" %}class="active"{% endif %}>Knowledge</a>
                 <a href="/dashboard/people" {% if active == "people" %}class="active"{% endif %}>People</a>
                 <a href="/dashboard/activity" {% if active == "activity" %}class="active"{% endif %}>Activity</a>
+                <a href="/dashboard/usage" {% if active == "usage" %}class="active"{% endif %}>Usage</a>
             </div>
             <div class="status-sidebar" hx-get="/dashboard/partials/status-sidebar" hx-trigger="load, every 30s" hx-swap="innerHTML">
             </div>

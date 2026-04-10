@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from yeti.agents.chat import chat as chat_agent
 from yeti.api.actions import router as actions_router
 from yeti.api.memory import router as memory_router
+from yeti.api.usage import router as usage_router
 from yeti.config import settings
 from yeti.dashboard.routes import router as dashboard_router
 from yeti.integrations.jira import JiraAdapter
@@ -34,6 +35,7 @@ app = FastAPI(
 )
 app.include_router(actions_router)
 app.include_router(memory_router)
+app.include_router(usage_router)
 app.include_router(dashboard_router)
 
 # Paths that don't require auth
