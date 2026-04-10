@@ -50,10 +50,19 @@ def _migrate_pending_tasks_to_inbox(db_path: Path) -> None:
         inbox = InboxStore()
         for row in rows:
             row_dict = dict(row)
+            # Try to extract source note id from "note:<id>"
+            source_str = row_dict.get("source", "") or ""
+            note_id = ""
+            if ":" in source_str:
+                prefix, _, nid = source_str.partition(":")
+                if prefix in ("note", "triage"):
+                    note_id = nid
+
             inbox.create(
                 InboxItem(
                     type=InboxType.PROPOSED_ACTION,
                     title=row_dict["title"],
+                    source_note_id=note_id,
                     summary=(
                         row_dict.get("context", "")
                         or "Proposed task from triage"

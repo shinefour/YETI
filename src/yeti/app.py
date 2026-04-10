@@ -172,7 +172,24 @@ async def get_system_status() -> dict:
             else "error"
         )
     )
-    for name in ["teams", "slack", "calendar", "email"]:
+
+    # Gmail
+    if settings.gmail_client_id:
+        try:
+            from yeti.integrations.gmail import GmailAdapter
+
+            gmail = GmailAdapter()
+            integrations["gmail"] = (
+                "connected"
+                if await gmail.health()
+                else "needs_auth"
+            )
+        except Exception:
+            integrations["gmail"] = "error"
+    else:
+        integrations["gmail"] = "not_configured"
+
+    for name in ["teams", "slack", "calendar"]:
         integrations[name] = "not_configured"
 
     return {"services": services, "integrations": integrations}

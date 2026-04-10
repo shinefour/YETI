@@ -482,6 +482,83 @@ async def tasks_partial(status: str = "pending_review"):
 
 
 @router.get(
+    "/partials/tasks-flat", response_class=HTMLResponse
+)
+async def tasks_flat_partial():
+    """Single flat list of tasks with status badges and inline actions."""
+    store = TaskStore()
+    # Order: active first, then blocked, then completed (limited)
+    active = store.list(status=TaskStatus.ACTIVE)
+    blocked = store.list(status=TaskStatus.BLOCKED)
+    completed = store.list(status=TaskStatus.COMPLETED)[:10]
+
+    if not active and not blocked and not completed:
+        return (
+            '<div class="muted">'
+            "No tasks. Approve proposed tasks from the inbox."
+            "</div>"
+        )
+
+    rows = []
+
+    def _row(task, status_label, status_color, actions_html):
+        project_tag = (
+            f' <span class="badge badge-dim">{task.project}</span>'
+            if task.project
+            else ""
+        )
+        assignee_tag = (
+            f' <span class="badge badge-dim">{task.assignee}</span>'
+            if task.assignee and task.assignee != "Daniel"
+            else ""
+        )
+        return (
+            f'<div class="status-row">'
+            f'<span style="flex:0 0 70px">'
+            f'<span class="badge" style="color:{status_color}">'
+            f"{status_label}</span></span>"
+            f'<span style="flex:1">{task.title}'
+            f"{project_tag}{assignee_tag}</span>"
+            f'<span class="btn-row">{actions_html}</span>'
+            f"</div>"
+        )
+
+    for t in active:
+        actions = (
+            f'<button class="btn btn-success btn-sm" '
+            f"onclick=\"markTaskDone('{t.id}')\">Done</button>"
+            f'<button class="btn btn-ghost btn-sm" '
+            f"onclick=\"markTaskBlocked('{t.id}')\">Block</button>"
+            f'<button class="btn btn-ghost btn-sm" '
+            f"onclick=\"markTaskCancelled('{t.id}')\">Cancel</button>"
+        )
+        rows.append(_row(t, "ACTIVE", "var(--green)", actions))
+
+    for t in blocked:
+        actions = (
+            f'<button class="btn btn-success btn-sm" '
+            f"onclick=\"markTaskActive('{t.id}')\">Resume</button>"
+            f'<button class="btn btn-ghost btn-sm" '
+            f"onclick=\"markTaskCancelled('{t.id}')\">Cancel</button>"
+        )
+        rows.append(
+            _row(t, "BLOCKED", "var(--yellow)", actions)
+        )
+
+    for t in completed:
+        rows.append(
+            _row(
+                t,
+                "DONE",
+                "var(--text-dim)",
+                "",
+            )
+        )
+
+    return "\n".join(rows)
+
+
+@router.get(
     "/partials/inbox-tile", response_class=HTMLResponse
 )
 async def inbox_tile_partial():
@@ -572,15 +649,29 @@ async def inbox_active_partial():
     """
 
 
+def _resolve_note_id(item) -> str:
+    """Find a source note id, falling back to parsing the source field."""
+    if item.source_note_id:
+        return item.source_note_id
+    src = item.source or ""
+    # Source patterns: "triage:<id>" or "note:<id>"
+    if ":" in src:
+        prefix, _, note_id = src.partition(":")
+        if prefix in ("triage", "note") and note_id:
+            return note_id
+    return ""
+
+
 def _render_source_note(item) -> str:
     """If the item has a source note, render it as a collapsible card."""
-    if not item.source_note_id:
+    note_id = _resolve_note_id(item)
+    if not note_id:
         return ""
 
     from yeti.models.notes import NoteStore
 
     store = NoteStore()
-    note = store.get(item.source_note_id)
+    note = store.get(note_id)
     if not note:
         return ""
 
@@ -989,7 +1080,7 @@ def _render_image_fallback(
 def _dot_for(state: str) -> str:
     if state in ("up", "connected"):
         css = "dot-green"
-    elif state == "unknown":
+    elif state in ("unknown", "needs_auth"):
         css = "dot-yellow"
     elif state == "not_configured":
         css = "dot-dim"
