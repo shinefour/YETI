@@ -634,9 +634,7 @@ def _resolve_btn(
         f'hx-post="/api/inbox/{item_id}/resolve" '
         f'hx-vals=\'{{"resolution":"{resolution}"}}\' '
         f'hx-swap="none" '
-        f'hx-on::after-request="'
-        f"document.getElementById('inbox-active')"
-        f".dispatchEvent(new Event('refresh'))\">{label}</button>"
+        f'hx-on::after-request="clearAndRefresh()">{label}</button>'
     )
 
 
@@ -770,16 +768,31 @@ def _render_schema_form(item) -> tuple[str, str]:
         )
 
     actions = submit_btn + "".join(quick_action_buttons) + """
+    <div id="inbox-status" class="muted"
+         style="font-size:0.8rem;margin-top:0.75rem;
+                min-height:1.2rem"></div>
     <script>
     function pickChoice(btn) {
       const input = document.getElementById(btn.dataset.input);
       input.value = btn.dataset.value;
-      // Visual feedback: clear sibling selection, mark this one
-      const siblings = btn.parentElement.querySelectorAll('.choice-btn');
+      const siblings = btn.parentElement
+        .querySelectorAll('.choice-btn');
       siblings.forEach(s => s.classList.remove('btn-primary'));
       siblings.forEach(s => s.classList.add('btn-ghost'));
       btn.classList.remove('btn-ghost');
       btn.classList.add('btn-primary');
+    }
+    function setBusy(buttonsParent, busy, label) {
+      const status = document.getElementById('inbox-status');
+      if (status) status.textContent = label || '';
+      const btns = document.querySelectorAll(
+        '.btn-primary, .btn-success, .btn-ghost, .btn-danger'
+      );
+      btns.forEach(b => {
+        b.disabled = busy;
+        b.style.opacity = busy ? '0.5' : '';
+        b.style.pointerEvents = busy ? 'none' : '';
+      });
     }
     async function submitAnswer(itemId) {
       const form = document.getElementById('answer-form-' + itemId);
@@ -788,29 +801,46 @@ def _render_schema_form(item) -> tuple[str, str]:
       inputs.forEach(el => {
         if (el.value) answer[el.dataset.key] = el.value;
       });
-      const r = await fetch('/api/inbox/' + itemId + '/answer', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        credentials: 'include',
-        body: JSON.stringify({answer: answer})
-      });
-      if (r.ok) {
-        document.getElementById('inbox-active')
-          .dispatchEvent(new Event('refresh'));
+      setBusy(null, true, 'Sending answer to YETI...');
+      try {
+        const r = await fetch('/api/inbox/' + itemId + '/answer', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'include',
+          body: JSON.stringify({answer: answer})
+        });
+        if (r.ok) {
+          const data = await r.json();
+          setBusy(null, false,
+            'Saved (' + data.facts_applied + ' facts). Loading next...');
+          clearAndRefresh();
+        } else {
+          setBusy(null, false, 'Failed to send answer');
+        }
+      } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
       }
     }
     async function convertToTask(itemId, defaultTitle) {
       const title = prompt('Task title:', defaultTitle);
       if (!title) return;
-      const r = await fetch('/api/inbox/' + itemId + '/convert-to-task', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        credentials: 'include',
-        body: JSON.stringify({title: title})
-      });
-      if (r.ok) {
-        document.getElementById('inbox-active')
-          .dispatchEvent(new Event('refresh'));
+      setBusy(null, true, 'Converting to task...');
+      try {
+        const r = await fetch(
+          '/api/inbox/' + itemId + '/convert-to-task', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'include',
+          body: JSON.stringify({title: title})
+        });
+        if (r.ok) {
+          setBusy(null, false, 'Task created. Loading next...');
+          clearAndRefresh();
+        } else {
+          setBusy(null, false, 'Failed');
+        }
+      } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
       }
     }
     </script>
@@ -895,9 +925,7 @@ def _render_image_fallback(
             hx-post="/api/inbox/{item.id}/resolve"
             hx-vals='{{"resolution":"discarded"}}'
             hx-swap="none"
-            hx-on::after-request="
-              document.getElementById('inbox-active')
-              .dispatchEvent(new Event('refresh'))">
+            hx-on::after-request="clearAndRefresh()">
       Discard
     </button>
     <script>
@@ -915,10 +943,7 @@ def _render_image_fallback(
           resolution: 'manual_save',
           note: JSON.stringify(data)
         }})
-      }}).then(() => {{
-        document.getElementById('inbox-active')
-          .dispatchEvent(new Event('refresh'));
-      }});
+      }}).then(() => clearAndRefresh());
     }}
     </script>
     """

@@ -13,13 +13,31 @@
 </div>
 
 <script>
-// Guard against refresh while user is editing the inbox form.
-// Intercepts the refresh event and only proceeds if no input/textarea
-// inside #inbox-active is focused or has unsaved content.
+// Track whether a clear-and-refresh is in progress so the edit
+// guard doesn't block it.
+window._yetiClearing = false;
+
+window.clearAndRefresh = function() {
+    const root = document.getElementById('inbox-active');
+    // Wipe inputs first so the edit guard won't block the reload
+    root.querySelectorAll(
+        'input[type="text"], textarea, input[type="hidden"]'
+    ).forEach(el => { el.value = ''; });
+    window._yetiClearing = true;
+    if (window.htmx) {
+        htmx.trigger(root, 'refresh');
+    } else {
+        root.dispatchEvent(new Event('refresh'));
+    }
+    setTimeout(() => { window._yetiClearing = false; }, 1000);
+};
+
+// Edit guard: skip refresh if user has unsaved input
 (function() {
     const target = document.getElementById('inbox-active');
 
     function isUserEditing() {
+        if (window._yetiClearing) return false;
         const inputs = target.querySelectorAll(
             'input[type="text"], textarea'
         );
