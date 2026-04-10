@@ -61,6 +61,11 @@ class Settings(BaseSettings):
 
     slack_bot_token: str = ""
 
+    # Gmail (OAuth)
+    gmail_client_id: str = ""
+    gmail_client_secret: str = ""
+    gmail_email: str = ""
+
     model_config = {
         "env_prefix": "YETI_",
         "env_file": str(_ENV_FILE),

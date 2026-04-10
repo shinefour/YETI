@@ -26,6 +26,10 @@ celery_app.conf.beat_schedule = {
         "task": "yeti.worker.sync_notion",
         "schedule": 300.0,
     },
+    "gmail-sync": {
+        "task": "yeti.worker.sync_gmail",
+        "schedule": 300.0,
+    },
 }
 
 
@@ -151,6 +155,90 @@ async def _sync_notion_async():
         # TODO: store events in MemPalace once connected
     except Exception:
         logger.exception("Notion sync failed")
+
+
+@celery_app.task
+def sync_gmail():
+    """Pull new Gmail messages and queue them for triage."""
+    if not settings.gmail_client_id:
+        return
+    _sync_gmail_sync()
+
+
+def _sync_gmail_sync():
+    """Sync Gmail (runs in worker thread, no async needed)."""
+    from yeti.email.filters import filter_email
+    from yeti.integrations.gmail import GmailAdapter
+    from yeti.models.notes import Note, NoteSource, NoteStore
+
+    try:
+        adapter = GmailAdapter()
+        messages = adapter.list_new_messages(max_results=20)
+    except RuntimeError as e:
+        logger.warning("Gmail sync skipped: %s", e)
+        return
+    except Exception:
+        logger.exception("Gmail sync failed")
+        return
+
+    if not messages:
+        return
+
+    note_store = NoteStore()
+    ingested = 0
+    skipped = 0
+    for msg in messages:
+        sender = msg.get("from", "")
+        should_ingest, reason = filter_email(
+            sender, msg.get("headers", {})
+        )
+
+        if not should_ingest:
+            logger.info(
+                "Skipped email from %s: %s", sender, reason
+            )
+            try:
+                adapter.mark_read(msg["id"])
+            except Exception:
+                pass
+            skipped += 1
+            continue
+
+        # Build the note content
+        title = msg.get("subject", "(no subject)")
+        content = (
+            f"From: {sender}\n"
+            f"To: {msg.get('to', '')}\n"
+            f"Subject: {title}\n"
+            f"Date: {msg.get('date', '')}\n"
+            f"\n"
+            f"{msg.get('body', '') or msg.get('snippet', '')}"
+        )
+
+        note = note_store.create(
+            Note(
+                content=content,
+                title=title,
+                context=f"Gmail message from {sender}",
+                source=NoteSource.EMAIL,
+            )
+        )
+        triage_note.delay(note.id)
+
+        try:
+            adapter.mark_read(msg["id"])
+        except Exception:
+            logger.exception(
+                "Failed to mark message %s as read", msg["id"]
+            )
+
+        ingested += 1
+
+    logger.info(
+        "Gmail sync: ingested=%d skipped=%d",
+        ingested,
+        skipped,
+    )
 
 
 @celery_app.task

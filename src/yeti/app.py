@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from yeti.agents.chat import chat as chat_agent
 from yeti.api.images import router as images_router
 from yeti.api.inbox import router as inbox_router
+from yeti.api.integrations import router as integrations_router
 from yeti.api.memory import router as memory_router
 from yeti.api.notes import router as notes_router
 from yeti.api.tasks import router as tasks_router
@@ -42,6 +43,7 @@ app.include_router(notes_router)
 app.include_router(memory_router)
 app.include_router(images_router)
 app.include_router(usage_router)
+app.include_router(integrations_router)
 app.include_router(dashboard_router)
 
 # Paths that don't require auth

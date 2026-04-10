@@ -30,6 +30,63 @@ def _headers() -> dict:
     return {}
 
 
+@app.command(name="gmail-auth")
+def gmail_auth(
+    upload: bool = typer.Option(
+        True,
+        "--upload/--no-upload",
+        help="Upload token to remote YETI server after auth",
+    ),
+):
+    """Run the Gmail OAuth flow once. Saves token locally and to server."""
+    from pathlib import Path
+
+    from yeti.integrations.gmail import TOKEN_PATH, run_oauth_flow
+
+    local_token = Path("data/gmail_token.json")
+    try:
+        run_oauth_flow(local_token)
+    except Exception as e:
+        console.print(f"[red]OAuth flow failed: {e}[/red]")
+        raise typer.Exit(1) from e
+
+    console.print(
+        f"[green]Token saved locally to[/green] {local_token}"
+    )
+
+    if not upload:
+        console.print(
+            f"[dim]Skipping upload. "
+            f"To use on the server, copy to {TOKEN_PATH}[/dim]"
+        )
+        return
+
+    try:
+        token_blob = local_token.read_text()
+        r = httpx.post(
+            f"{_api_url()}/api/integrations/gmail/token",
+            headers={
+                **_headers(),
+                "Content-Type": "application/json",
+            },
+            json={"token": token_blob},
+            timeout=30,
+        )
+        if r.is_success:
+            console.print(
+                "[green]Token uploaded to server.[/green]"
+            )
+        else:
+            console.print(
+                f"[red]Upload failed: {r.status_code} {r.text}[/red]"
+            )
+    except httpx.ConnectError:
+        console.print(
+            "[red]Cannot reach YETI API. "
+            "Token saved locally; copy it manually.[/red]"
+        )
+
+
 @app.command()
 def chat(message: str = typer.Argument(None, help="Message to send to YETI")):
     """Chat with YETI. If no message is provided, starts an interactive session."""
