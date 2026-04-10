@@ -348,15 +348,19 @@
         .chat-input button:hover { border-color: var(--accent); }
         .chat-thinking {
             color: var(--text-dim);
-            font-size: 0.85rem;
-            padding: 0.5rem 0;
+            font-size: 0.8rem;
+            padding: 0.5rem 1.5rem;
             display: none;
         }
         .chat-thinking.active { display: block; }
         @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
         .chat-thinking span { animation: pulse 1.5s infinite; }
         .htmx-request .chat-thinking { display: block; }
-        .htmx-request .chat-input button { opacity: 0.3; pointer-events: none; }
+        .htmx-request .chat-input button,
+        .htmx-request .global-chat-input button {
+            opacity: 0.3;
+            pointer-events: none;
+        }
         .muted { color: var(--text-dim); }
 
         /* Inbox tile */
@@ -547,7 +551,7 @@
         <main>
             {% block content %}{% endblock %}
         </main>
-        <aside class="global-chat">
+        <aside class="global-chat" id="global-chat">
             <div class="global-chat-header">
                 <span>Chat with YETI</span>
                 <button class="global-chat-clear"
@@ -556,10 +560,14 @@
                 </button>
             </div>
             <div class="global-chat-messages" id="global-chat-messages"></div>
+            <div class="chat-thinking" id="global-chat-thinking">
+                <span>YETI is thinking...</span>
+            </div>
             <form class="global-chat-input"
                   hx-post="/dashboard/partials/chat"
                   hx-target="#global-chat-messages"
                   hx-swap="beforeend"
+                  hx-indicator="#global-chat"
                   hx-on::after-request="this.reset();
                     document.getElementById('global-chat-messages').scrollTop =
                     document.getElementById('global-chat-messages').scrollHeight">
