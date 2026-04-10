@@ -2,6 +2,9 @@
 service: yeti
 image: shinefour/yeti
 
+volumes:
+  - "yeti-data:/data"
+
 servers:
   web:
     hosts:

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -97,27 +98,83 @@ class MemPalaceClient:
         self.palace_path = palace_path
         self._process: asyncio.subprocess.Process | None = None
         self._request_id = 0
+        self._initialized = False
         self._lock = asyncio.Lock()
 
     async def _ensure_running(self):
-        """Start the MCP server subprocess if not running."""
-        if self._process and self._process.returncode is None:
+        """Start the MCP server subprocess and complete the handshake."""
+        if (
+            self._process
+            and self._process.returncode is None
+            and self._initialized
+        ):
             return
 
+        env = os.environ.copy()
+        env["MEMPALACE_PALACE_PATH"] = self.palace_path
+
         self._process = await asyncio.create_subprocess_exec(
-            "python", "-m", "mempalace.mcp_server",
+            "python",
+            "-m",
+            "mempalace.mcp_server",
+            "--palace",
+            self.palace_path,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={
-                "MEMPALACE_PATH": self.palace_path,
-                "PATH": "/usr/local/bin:/usr/bin:/bin",
-            },
+            env=env,
         )
 
-        # Read the initialization message
-        init = await self._read_response()
-        logger.info("MemPalace MCP server started: %s", init)
+        # MCP handshake: initialize -> notifications/initialized
+        self._request_id += 1
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": self._request_id,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "yeti",
+                    "version": "0.1.0",
+                },
+            },
+        }
+        await self._write_line(init_request)
+        init_response = await self._read_response()
+        logger.info(
+            "MemPalace initialized: %s",
+            init_response.get("result", {}).get(
+                "serverInfo", {}
+            ),
+        )
+
+        # Send initialized notification (no response expected)
+        await self._write_line(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            }
+        )
+
+        self._initialized = True
+
+    async def _write_line(self, payload: dict) -> None:
+        line = json.dumps(payload) + "\n"
+        self._process.stdin.write(line.encode())
+        await self._process.stdin.drain()
+
+    async def _read_response(self) -> dict:
+        """Read a JSON-RPC response from stdout."""
+        line = await asyncio.wait_for(
+            self._process.stdout.readline(),
+            timeout=30,
+        )
+        if not line:
+            raise ConnectionError(
+                "MemPalace process closed unexpectedly"
+            )
+        return json.loads(line.decode())
 
     async def _send_request(
         self, method: str, params: dict | None = None
@@ -133,22 +190,25 @@ class MemPalaceClient:
                 "method": method,
                 "params": params or {},
             }
-
-            line = json.dumps(request) + "\n"
-            self._process.stdin.write(line.encode())
-            await self._process.stdin.drain()
-
+            await self._write_line(request)
             return await self._read_response()
 
-    async def _read_response(self) -> dict:
-        """Read a JSON-RPC response from stdout."""
-        line = await asyncio.wait_for(
-            self._process.stdout.readline(),
-            timeout=30,
-        )
-        if not line:
-            raise ConnectionError("MemPalace process closed")
-        return json.loads(line.decode())
+    @staticmethod
+    def _unwrap_result(response: dict) -> Any:
+        """Unwrap MCP tool result content."""
+        if "error" in response:
+            return {"error": response["error"]}
+
+        result = response.get("result", {})
+        content = result.get("content", [])
+        if not content:
+            return result
+
+        text = content[0].get("text", "")
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"text": text}
 
     async def call_tool(
         self, tool_name: str, arguments: dict | None = None
@@ -179,13 +239,16 @@ class MemPalaceClient:
         try:
             response = await self._send_request(
                 "tools/call",
-                {"name": tool_name, "arguments": arguments or {}},
+                {
+                    "name": tool_name,
+                    "arguments": arguments or {},
+                },
             )
-            if "error" in response:
-                return {"error": response["error"]}
-            return response.get("result", response)
+            return self._unwrap_result(response)
         except Exception as e:
-            logger.exception("MemPalace tool call failed: %s", tool_name)
+            logger.exception(
+                "MemPalace tool call failed: %s", tool_name
+            )
             return {"error": str(e)}
 
     # --- Convenience methods ---
@@ -269,9 +332,13 @@ class MemPalaceClient:
 
     async def close(self):
         """Shut down the MCP server subprocess."""
-        if self._process and self._process.returncode is None:
+        if (
+            self._process
+            and self._process.returncode is None
+        ):
             self._process.terminate()
             await self._process.wait()
+        self._initialized = False
 
     def get_unimplemented_tools(self) -> list[dict]:
         """List tools that exist but aren't wired up yet."""
