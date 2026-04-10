@@ -22,7 +22,7 @@ from yeti.config import settings
 logger = logging.getLogger(__name__)
 
 SCOPES = [
-    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
 ]
 
@@ -133,16 +133,17 @@ class GmailAdapter:
             logger.exception("Gmail health check failed")
             return False
 
-    def list_new_messages(
+    def list_messages_since(
         self,
-        last_history_id: str | None = None,
-        max_results: int = 50,
+        since: datetime,
+        max_results: int = 100,
     ) -> list[dict[str, Any]]:
-        """Fetch unread messages from INBOX, parsed into dicts."""
+        """Fetch INBOX messages received after the given timestamp."""
         svc = self._get_service()
 
-        # Use Gmail search to get unread INBOX messages
-        query = "in:inbox is:unread"
+        # Gmail's `after:` query takes a Unix timestamp (seconds)
+        unix_ts = int(since.timestamp())
+        query = f"in:inbox after:{unix_ts}"
         result = (
             svc.users()
             .messages()
@@ -174,14 +175,6 @@ class GmailAdapter:
                     "Failed to fetch message %s", ref["id"]
                 )
         return messages
-
-    def mark_read(self, message_id: str) -> None:
-        svc = self._get_service()
-        svc.users().messages().modify(
-            userId="me",
-            id=message_id,
-            body={"removeLabelIds": ["UNREAD"]},
-        ).execute()
 
     def save_draft(
         self,

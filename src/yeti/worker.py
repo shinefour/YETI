@@ -173,14 +173,31 @@ def sync_gmail():
 
 
 def _sync_gmail_sync():
-    """Sync Gmail (runs in worker thread, no async needed)."""
+    """Sync Gmail (runs in worker thread, no async needed).
+
+    Uses date-based watermark sync. Never modifies the mailbox.
+    First sync backfills the last 24 hours.
+    """
     from yeti.email.filters import filter_email
     from yeti.integrations.gmail import GmailAdapter
     from yeti.models.notes import Note, NoteSource, NoteStore
+    from yeti.models.sync_state import SyncStateStore
+
+    mailbox = "gmail"
+    state = SyncStateStore()
+
+    since = state.get_watermark(mailbox)
+    if since is None:
+        since = datetime.now(UTC) - timedelta(hours=24)
+        logger.info(
+            "Gmail first sync: backfilling last 24h"
+        )
 
     try:
         adapter = GmailAdapter()
-        messages = adapter.list_new_messages(max_results=20)
+        messages = adapter.list_messages_since(
+            since, max_results=100
+        )
     except RuntimeError as e:
         logger.warning("Gmail sync skipped: %s", e)
         return
@@ -194,20 +211,41 @@ def _sync_gmail_sync():
     note_store = NoteStore()
     ingested = 0
     skipped = 0
+    deduped = 0
+    newest_ts = since
     for msg in messages:
+        msg_id = msg["id"]
+
+        # Dedup against previously seen messages
+        if state.already_seen(mailbox, msg_id):
+            deduped += 1
+            continue
+
+        # Track newest timestamp seen this poll
+        try:
+            received = datetime.fromisoformat(
+                msg.get("received_at") or ""
+            )
+            if received > newest_ts:
+                newest_ts = received
+        except (ValueError, TypeError):
+            pass
+
         sender = msg.get("from", "")
         should_ingest, reason = filter_email(
             sender, msg.get("headers", {})
         )
 
+        # Mark as seen regardless (filtered or ingested) so
+        # we don't re-evaluate noise on every poll
+        state.mark_seen(mailbox, msg_id)
+
         if not should_ingest:
             logger.info(
-                "Skipped email from %s: %s", sender, reason
+                "Skipped email from %s: %s",
+                sender,
+                reason,
             )
-            try:
-                adapter.mark_read(msg["id"])
-            except Exception:
-                pass
             skipped += 1
             continue
 
@@ -231,20 +269,17 @@ def _sync_gmail_sync():
             )
         )
         triage_note.delay(note.id)
-
-        try:
-            adapter.mark_read(msg["id"])
-        except Exception:
-            logger.exception(
-                "Failed to mark message %s as read", msg["id"]
-            )
-
         ingested += 1
 
+    # Advance watermark to the newest message we've seen
+    if newest_ts > since:
+        state.set_watermark(mailbox, newest_ts)
+
     logger.info(
-        "Gmail sync: ingested=%d skipped=%d",
+        "Gmail sync: ingested=%d skipped=%d deduped=%d",
         ingested,
         skipped,
+        deduped,
     )
 
 
