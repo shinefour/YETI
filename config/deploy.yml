@@ -29,6 +29,7 @@ proxy:
   host: yeti.diconve.com
   ssl: true
   app_port: 8000
+  response_timeout: 300
   healthcheck:
     path: /health
     interval: 5
