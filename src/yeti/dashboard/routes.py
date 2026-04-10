@@ -623,11 +623,9 @@ def _resolve_btn(
 ) -> str:
     """Build a resolve button using the unified btn classes."""
     return (
-        f'<button class="btn btn-{style}" '
-        f'hx-post="/api/inbox/{item_id}/resolve" '
-        f'hx-vals=\'{{"resolution":"{resolution}"}}\' '
-        f'hx-swap="none" '
-        f'hx-on::after-request="clearAndRefresh()">{label}</button>'
+        f'<button type="button" class="btn btn-{style}" '
+        f"onclick=\"resolveInboxItem('{item_id}', "
+        f"'{resolution}')\">{label}</button>"
     )
 
 

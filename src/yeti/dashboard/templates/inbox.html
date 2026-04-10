@@ -32,6 +32,24 @@ window.clearAndRefresh = function() {
     setTimeout(() => { window._yetiClearing = false; }, 1000);
 };
 
+window.resolveInboxItem = async function(itemId, resolution) {
+    try {
+        const r = await fetch('/api/inbox/' + itemId + '/resolve', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({resolution: resolution})
+        });
+        if (r.ok) {
+            window.clearAndRefresh();
+        } else {
+            console.error('Failed to resolve item:', r.status);
+        }
+    } catch(e) {
+        console.error('Error resolving item:', e);
+    }
+};
+
 // Edit guard: skip refresh if user has unsaved input.
 // Only blocks the auto-refresh GET on the container itself —
 // button-initiated POST/PATCH from children always go through.
