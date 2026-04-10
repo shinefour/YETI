@@ -71,14 +71,14 @@ def morning_briefing():
 
 
 async def _morning_briefing_async():
-    from yeti.models.actions import ActionStatus, ActionStore
+    from yeti.models.tasks import TaskStatus, TaskStore
 
     lines = ["*YETI Morning Briefing*\n"]
 
     # Action items summary
-    store = ActionStore()
-    pending = store.list(status=ActionStatus.PENDING_REVIEW)
-    active = store.list(status=ActionStatus.ACTIVE)
+    store = TaskStore()
+    pending = store.list(status=TaskStatus.PENDING_REVIEW)
+    active = store.list(status=TaskStatus.ACTIVE)
 
     if pending:
         lines.append(f"*Pending review:* {len(pending)}")

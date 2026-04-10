@@ -194,6 +194,39 @@
         .htmx-request .chat-thinking { display: block; }
         .htmx-request .chat-input button { opacity: 0.3; pointer-events: none; }
         .muted { color: var(--text-dim); }
+
+        /* Inbox tile */
+        .inbox-tile {
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--text-dim);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: border-color 200ms;
+        }
+        .inbox-tile:hover { border-color: var(--text-dim); }
+        .inbox-tile-empty { cursor: default; opacity: 0.5; }
+        .inbox-count {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            margin-bottom: 0.4rem;
+        }
+        .inbox-active { font-size: 0.95rem; }
+        .inbox-hint { font-size: 0.8rem; }
+        .inbox-upcoming {
+            list-style: none;
+            margin-top: 0.5rem;
+            padding-left: 0;
+            font-size: 0.8rem;
+        }
+        .inbox-upcoming li {
+            padding: 0.2rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .inbox-upcoming li:last-child { border-bottom: none; }
     </style>
 </head>
 <body>
@@ -202,7 +235,8 @@
             <div class="logo">YETI</div>
             <div class="nav-links">
                 <a href="/dashboard" {% if active == "chat" %}class="active"{% endif %}>Chat</a>
-                <a href="/dashboard/actions" {% if active == "actions" %}class="active"{% endif %}>Actions</a>
+                <a href="/dashboard/inbox" {% if active == "inbox" %}class="active"{% endif %}>Inbox</a>
+                <a href="/dashboard/tasks" {% if active == "tasks" %}class="active"{% endif %}>Tasks</a>
                 <a href="/dashboard/knowledge" {% if active == "knowledge" %}class="active"{% endif %}>Knowledge</a>
                 <a href="/dashboard/people" {% if active == "people" %}class="active"{% endif %}>People</a>
                 <a href="/dashboard/activity" {% if active == "activity" %}class="active"{% endif %}>Activity</a>

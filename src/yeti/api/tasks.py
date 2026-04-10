@@ -1,18 +1,18 @@
-"""Action items API routes."""
+"""Tasks API routes."""
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from yeti.models.actions import ActionItem, ActionStatus, ActionStore
+from yeti.models.tasks import Task, TaskStatus, TaskStore
 
-router = APIRouter(prefix="/api/actions", tags=["actions"])
+router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
-store = ActionStore()
+store = TaskStore()
 
 
 @router.get("")
-async def list_actions(
-    status: ActionStatus | None = None,
+async def list_tasks(
+    status: TaskStatus | None = None,
     project: str | None = None,
 ):
     items = store.list(status=status, project=project)
@@ -20,13 +20,13 @@ async def list_actions(
 
 
 @router.post("", status_code=201)
-async def create_action(item: ActionItem):
+async def create_task(item: Task):
     created = store.create(item)
     return created.model_dump()
 
 
 @router.get("/{item_id}")
-async def get_action(item_id: str):
+async def get_task(item_id: str):
     item = store.get(item_id)
     if not item:
         return JSONResponse(
@@ -36,14 +36,14 @@ async def get_action(item_id: str):
 
 
 @router.patch("/{item_id}/status")
-async def update_action_status(item_id: str, body: dict):
+async def update_task_status(item_id: str, body: dict):
     new_status = body.get("status")
     if not new_status:
         return JSONResponse(
             {"error": "status field required"}, status_code=400
         )
     try:
-        status = ActionStatus(new_status)
+        status = TaskStatus(new_status)
     except ValueError:
         return JSONResponse(
             {"error": f"Invalid status: {new_status}"},
@@ -58,7 +58,7 @@ async def update_action_status(item_id: str, body: dict):
 
 
 @router.delete("/{item_id}")
-async def delete_action(item_id: str):
+async def delete_task(item_id: str):
     if not store.delete(item_id):
         return JSONResponse(
             {"error": "Not found"}, status_code=404

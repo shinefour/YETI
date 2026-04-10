@@ -8,7 +8,8 @@ from fastapi.templating import Jinja2Templates
 
 from yeti.agents.chat import chat as chat_agent
 from yeti.config import settings
-from yeti.models.actions import ActionStatus, ActionStore
+from yeti.models.inbox import InboxStore
+from yeti.models.tasks import TaskStatus, TaskStore
 
 router = APIRouter(prefix="/dashboard")
 
@@ -24,10 +25,17 @@ async def home_page(request: Request):
     )
 
 
-@router.get("/actions", response_class=HTMLResponse)
-async def actions_page(request: Request):
+@router.get("/tasks", response_class=HTMLResponse)
+async def tasks_page(request: Request):
     return templates.TemplateResponse(
-        request, "actions.html", {"active": "actions"}
+        request, "tasks.html", {"active": "tasks"}
+    )
+
+
+@router.get("/inbox", response_class=HTMLResponse)
+async def inbox_page(request: Request):
+    return templates.TemplateResponse(
+        request, "inbox.html", {"active": "inbox"}
     )
 
 
@@ -189,16 +197,16 @@ async def chat_partial(message: str = Form(...)):
 
 
 @router.get(
-    "/partials/actions", response_class=HTMLResponse
+    "/partials/tasks", response_class=HTMLResponse
 )
-async def actions_partial(status: str = "pending_review"):
+async def tasks_partial(status: str = "pending_review"):
     try:
-        action_status = ActionStatus(status)
+        task_status = TaskStatus(status)
     except ValueError:
         return "<p class='muted'>Invalid status</p>"
 
-    store = ActionStore()
-    items = store.list(status=action_status)
+    store = TaskStore()
+    items = store.list(status=task_status)
 
     if not items:
         return "<p class='muted'>None</p>"
@@ -206,35 +214,23 @@ async def actions_partial(status: str = "pending_review"):
     rows = []
     for item in items:
         buttons = ""
-        if action_status == ActionStatus.PENDING_REVIEW:
+        if task_status == TaskStatus.PENDING_REVIEW:
             buttons = (
                 f' <button class="badge badge-green" '
-                f'hx-patch="/api/actions/{item.id}/status" '
+                f'hx-patch="/api/tasks/{item.id}/status" '
                 f'hx-vals=\'{{"status":"active"}}\' '
-                f"hx-swap=\"none\" "
-                f'hx-on::after-request="'
-                f"this.closest('[hx-get]')"
-                f'.dispatchEvent(new Event(\'refresh\'))"'
-                f">approve</button>"
+                f"hx-swap=\"none\">approve</button>"
                 f' <button class="badge badge-red" '
-                f'hx-patch="/api/actions/{item.id}/status" '
+                f'hx-patch="/api/tasks/{item.id}/status" '
                 f'hx-vals=\'{{"status":"cancelled"}}\' '
-                f"hx-swap=\"none\" "
-                f'hx-on::after-request="'
-                f"this.closest('[hx-get]')"
-                f'.dispatchEvent(new Event(\'refresh\'))"'
-                f">reject</button>"
+                f"hx-swap=\"none\">reject</button>"
             )
-        elif action_status == ActionStatus.ACTIVE:
+        elif task_status == TaskStatus.ACTIVE:
             buttons = (
                 f' <button class="badge badge-green" '
-                f'hx-patch="/api/actions/{item.id}/status" '
+                f'hx-patch="/api/tasks/{item.id}/status" '
                 f'hx-vals=\'{{"status":"completed"}}\' '
-                f"hx-swap=\"none\" "
-                f'hx-on::after-request="'
-                f"this.closest('[hx-get]')"
-                f'.dispatchEvent(new Event(\'refresh\'))"'
-                f">done</button>"
+                f"hx-swap=\"none\">done</button>"
             )
 
         project_tag = ""
@@ -250,6 +246,119 @@ async def actions_partial(status: str = "pending_review"):
             f"<span>{buttons}</span></div>"
         )
     return "\n".join(rows)
+
+
+@router.get(
+    "/partials/inbox-tile", response_class=HTMLResponse
+)
+async def inbox_tile_partial():
+    """Compact tile showing inbox count + first item summary."""
+    store = InboxStore()
+    items = store.list_pending()
+    count = len(items)
+
+    if count == 0:
+        return (
+            '<div class="inbox-tile inbox-tile-empty">'
+            '<div class="inbox-count">Inbox empty</div>'
+            '<div class="inbox-hint muted">'
+            "Nothing pending review</div></div>"
+        )
+
+    color = "var(--yellow)" if count > 0 else "var(--green)"
+    next_titles = [
+        f'<li class="muted">{item.title}</li>'
+        for item in items[1:5]
+    ]
+    upcoming = (
+        f'<ul class="inbox-upcoming">{"".join(next_titles)}</ul>'
+        if next_titles
+        else ""
+    )
+
+    active = items[0]
+    return f"""
+    <div class="inbox-tile" style="border-left-color: {color}"
+         onclick="window.location.href='/dashboard/inbox'">
+      <div class="inbox-count">
+        {count} item{"s" if count != 1 else ""} pending
+      </div>
+      <div class="inbox-active">
+        <strong>{active.title}</strong>
+      </div>
+      {upcoming}
+    </div>
+    """
+
+
+@router.get(
+    "/partials/inbox-active", response_class=HTMLResponse
+)
+async def inbox_active_partial():
+    """Active item view + upcoming list for the inbox page."""
+    store = InboxStore()
+    items = store.list_pending()
+
+    if not items:
+        return (
+            '<div class="card"><h2>Inbox</h2>'
+            '<p class="muted">All clear. Nothing pending.</p>'
+            "</div>"
+        )
+
+    active = items[0]
+    upcoming_html = ""
+    if len(items) > 1:
+        upcoming_items = "".join(
+            f'<li>{i.title} <span class="muted">'
+            f'({i.type.value})</span></li>'
+            for i in items[1:]
+        )
+        upcoming_html = (
+            f'<div class="card"><h2>Up next ({len(items) - 1})</h2>'
+            f'<ul class="inbox-upcoming">{upcoming_items}</ul>'
+            "</div>"
+        )
+
+    payload_html = ""
+    if active.payload:
+        import json as _json
+
+        payload_html = (
+            f'<pre style="white-space:pre-wrap;font-size:0.8rem;'
+            f'color:var(--text-dim);margin-top:1rem">'
+            f"{_json.dumps(active.payload, indent=2)}</pre>"
+        )
+
+    return f"""
+    <div class="card">
+      <h2>{active.type.value.replace('_', ' ').title()}</h2>
+      <h3 style="margin:0.5rem 0">{active.title}</h3>
+      <p class="muted">{active.summary}</p>
+      {payload_html}
+      <div style="margin-top:1.5rem;display:flex;gap:0.5rem">
+        <button class="badge badge-green"
+                hx-post="/api/inbox/{active.id}/resolve"
+                hx-vals='{{"resolution":"approved"}}'
+                hx-swap="none"
+                hx-on::after-request="
+                  document.getElementById('inbox-active')
+                  .dispatchEvent(new Event('refresh'))">
+          Approve
+        </button>
+        <button class="badge badge-red"
+                hx-post="/api/inbox/{active.id}/resolve"
+                hx-vals='{{"resolution":"rejected"}}'
+                hx-swap="none"
+                hx-on::after-request="
+                  document.getElementById('inbox-active')
+                  .dispatchEvent(new Event('refresh'))">
+          Reject
+        </button>
+      </div>
+    </div>
+    {upcoming_html}
+    """
 
 
 def _dot_for(state: str) -> str:

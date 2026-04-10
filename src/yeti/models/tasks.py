@@ -1,4 +1,9 @@
-"""Action items — the core unit of work tracked by YETI."""
+"""Tasks — units of work tracked by YETI.
+
+A task is something that takes time to do, can be delegated, scheduled,
+and has a lifecycle. Distinct from inbox items, which are fast-resolve
+decisions handled in seconds.
+"""
 
 import enum
 import sqlite3
@@ -11,7 +16,7 @@ from pydantic import BaseModel, Field
 DB_PATH = Path("data/yeti.db")
 
 
-class ActionStatus(enum.StrEnum):
+class TaskStatus(enum.StrEnum):
     PENDING_REVIEW = "pending_review"
     ACTIVE = "active"
     BLOCKED = "blocked"
@@ -19,11 +24,11 @@ class ActionStatus(enum.StrEnum):
     CANCELLED = "cancelled"
 
 
-class ActionItem(BaseModel):
+class Task(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     source: str = ""
-    status: ActionStatus = ActionStatus.PENDING_REVIEW
+    status: TaskStatus = TaskStatus.PENDING_REVIEW
     assignee: str = ""
     due_date: str | None = None
     project: str = ""
@@ -34,13 +39,14 @@ class ActionItem(BaseModel):
     decided_at: str | None = None
 
 
-class ActionStore:
-    """SQLite-backed action item storage."""
+class TaskStore:
+    """SQLite-backed task storage."""
 
     def __init__(self, db_path: Path = DB_PATH):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        self._migrate_from_actions()
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path))
@@ -50,7 +56,7 @@ class ActionStore:
     def _init_db(self):
         with self._conn() as conn:
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS actions (
+                CREATE TABLE IF NOT EXISTS tasks (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     source TEXT DEFAULT '',
@@ -64,11 +70,30 @@ class ActionStore:
                 )
             """)
 
-    def create(self, item: ActionItem) -> ActionItem:
+    def _migrate_from_actions(self):
+        """Copy old `actions` table data into `tasks` if needed."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='actions'"
+            )
+            if not cur.fetchone():
+                return
+            cur = conn.execute("SELECT COUNT(*) FROM tasks")
+            if cur.fetchone()[0] > 0:
+                return
+            conn.execute(
+                """
+                INSERT INTO tasks
+                SELECT * FROM actions
+                """
+            )
+
+    def create(self, item: Task) -> Task:
         with self._conn() as conn:
             conn.execute(
                 """
-                INSERT INTO actions
+                INSERT INTO tasks
                     (id, title, source, status, assignee,
                      due_date, project, context,
                      created_at, decided_at)
@@ -89,21 +114,21 @@ class ActionStore:
             )
         return item
 
-    def get(self, item_id: str) -> ActionItem | None:
+    def get(self, item_id: str) -> Task | None:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM actions WHERE id = ?", (item_id,)
+                "SELECT * FROM tasks WHERE id = ?", (item_id,)
             ).fetchone()
         if not row:
             return None
-        return ActionItem(**dict(row))
+        return Task(**dict(row))
 
     def list(
         self,
-        status: ActionStatus | None = None,
+        status: TaskStatus | None = None,
         project: str | None = None,
-    ) -> list[ActionItem]:
-        query = "SELECT * FROM actions WHERE 1=1"
+    ) -> list[Task]:
+        query = "SELECT * FROM tasks WHERE 1=1"
         params: list = []
         if status:
             query += " AND status = ?"
@@ -114,21 +139,21 @@ class ActionStore:
         query += " ORDER BY created_at DESC"
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
-        return [ActionItem(**dict(r)) for r in rows]
+        return [Task(**dict(r)) for r in rows]
 
     def update_status(
-        self, item_id: str, status: ActionStatus
-    ) -> ActionItem | None:
+        self, item_id: str, status: TaskStatus
+    ) -> Task | None:
         decided = None
         if status in (
-            ActionStatus.ACTIVE,
-            ActionStatus.CANCELLED,
+            TaskStatus.ACTIVE,
+            TaskStatus.CANCELLED,
         ):
             decided = datetime.now(UTC).isoformat()
         with self._conn() as conn:
             conn.execute(
                 """
-                UPDATE actions
+                UPDATE tasks
                 SET status = ?, decided_at = COALESCE(?, decided_at)
                 WHERE id = ?
                 """,
@@ -139,6 +164,6 @@ class ActionStore:
     def delete(self, item_id: str) -> bool:
         with self._conn() as conn:
             cursor = conn.execute(
-                "DELETE FROM actions WHERE id = ?", (item_id,)
+                "DELETE FROM tasks WHERE id = ?", (item_id,)
             )
         return cursor.rowcount > 0

@@ -14,7 +14,7 @@ from telegram.ext import (
 
 from yeti.agents.chat import chat
 from yeti.config import settings
-from yeti.models.actions import ActionItem, ActionStatus, ActionStore
+from yeti.models.tasks import Task, TaskStatus, TaskStore
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +75,9 @@ async def cmd_actions(update: Update, context) -> None:
     if not _is_authorized(update):
         return
 
-    store = ActionStore()
-    pending = store.list(status=ActionStatus.PENDING_REVIEW)
-    active = store.list(status=ActionStatus.ACTIVE)
+    store = TaskStore()
+    pending = store.list(status=TaskStatus.PENDING_REVIEW)
+    active = store.list(status=TaskStatus.ACTIVE)
 
     if not pending and not active:
         await update.message.reply_text("No action items.")
@@ -133,9 +133,9 @@ async def cmd_add(update: Update, context) -> None:
         return
 
     title = " ".join(context.args)
-    store = ActionStore()
+    store = TaskStore()
     item = store.create(
-        ActionItem(title=title, source="telegram")
+        Task(title=title, source="telegram")
     )
     await update.message.reply_text(
         f"Created: {item.title} ({item.id[:8]})"
@@ -155,11 +155,11 @@ async def handle_callback(
     data = query.data
     action, item_id = data.split(":", 1)
 
-    store = ActionStore()
+    store = TaskStore()
     status_map = {
-        "approve": ActionStatus.ACTIVE,
-        "reject": ActionStatus.CANCELLED,
-        "complete": ActionStatus.COMPLETED,
+        "approve": TaskStatus.ACTIVE,
+        "reject": TaskStatus.CANCELLED,
+        "complete": TaskStatus.COMPLETED,
     }
 
     new_status = status_map.get(action)

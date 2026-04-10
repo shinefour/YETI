@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Inbox{% endblock %}
+{% block content %}
+<div class="page-content">
+<h1>Inbox</h1>
+
+<div id="inbox-active"
+     hx-get="/dashboard/partials/inbox-active"
+     hx-trigger="load, refresh, every 30s"
+     hx-swap="innerHTML">
+  <div class="card"><div class="muted">Loading...</div></div>
+</div>
+</div>
+{% endblock %}

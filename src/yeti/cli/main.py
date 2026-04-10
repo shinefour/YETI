@@ -107,7 +107,7 @@ def actions(
         if project:
             params["project"] = project
         response = httpx.get(
-            f"{_api_url()}/api/actions",
+            f"{_api_url()}/api/tasks",
             params=params,
             timeout=5,
             headers=_headers(),
@@ -158,7 +158,7 @@ def add_action(
     """Create a new action item."""
     try:
         response = httpx.post(
-            f"{_api_url()}/api/actions",
+            f"{_api_url()}/api/tasks",
             json={
                 "title": title,
                 "project": project,

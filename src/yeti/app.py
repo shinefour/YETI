@@ -10,8 +10,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from yeti.agents.chat import chat as chat_agent
-from yeti.api.actions import router as actions_router
+from yeti.api.inbox import router as inbox_router
 from yeti.api.memory import router as memory_router
+from yeti.api.tasks import router as tasks_router
 from yeti.api.usage import router as usage_router
 from yeti.config import settings
 from yeti.dashboard.routes import router as dashboard_router
@@ -33,7 +34,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-app.include_router(actions_router)
+app.include_router(tasks_router)
+app.include_router(inbox_router)
 app.include_router(memory_router)
 app.include_router(usage_router)
 app.include_router(dashboard_router)

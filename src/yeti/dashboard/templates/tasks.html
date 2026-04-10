@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Tasks{% endblock %}
+{% block content %}
+<div class="page-content">
+<h1>Tasks</h1>
+
+<div class="grid grid-2">
+    <div class="card"
+         hx-get="/dashboard/partials/tasks?status=pending_review"
+         hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <h2>Pending Review</h2>
+    </div>
+    <div class="card"
+         hx-get="/dashboard/partials/tasks?status=active"
+         hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <h2>Active</h2>
+    </div>
+</div>
+
+<div class="card"
+     hx-get="/dashboard/partials/tasks?status=completed"
+     hx-trigger="load" hx-swap="innerHTML">
+    <h2>Completed</h2>
+</div>
+</div>
+{% endblock %}
