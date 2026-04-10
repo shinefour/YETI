@@ -177,6 +177,14 @@ async def _apply_triage_result(
                 "Failed to create inbox item: %s", review
             )
 
+    # 5. Disambiguate people mentioned
+    people_mentioned = result.get("people_mentioned", [])
+    if people_mentioned:
+        disamb_count = await _resolve_people(
+            people_mentioned, wing, note
+        )
+        counts["inbox"] += disamb_count
+
     summary_parts = [
         f"Stored {wing}/{room}",
         f"{counts['facts']} fact(s)",
@@ -184,6 +192,138 @@ async def _apply_triage_result(
         f"{counts['inbox']} review(s)",
     ]
     return ", ".join(summary_parts)
+
+
+async def _resolve_people(
+    names: list[str], wing: str, note: Note
+) -> int:
+    """For each name, check matches in memory and create inbox items."""
+    inbox_created = 0
+
+    for name in names:
+        if not name or not name.strip():
+            continue
+
+        # Check learned mappings first
+        learned = await _check_learned_mapping(name, wing)
+        if learned:
+            logger.info(
+                "Resolved '%s' in %s context to %s (learned)",
+                name,
+                wing,
+                learned,
+            )
+            continue
+
+        # Search for matches in memory
+        matches = await _find_person_matches(name)
+
+        if len(matches) == 0:
+            # Unknown person — create inbox item for new contact
+            _inbox.create(
+                InboxItem(
+                    type=InboxType.PERSON_UPDATE,
+                    title=f"New person mentioned: {name}",
+                    summary=(
+                        f"YETI doesn't know '{name}'. "
+                        f"Mentioned in note '{note.title or 'untitled'}'."
+                    ),
+                    payload={
+                        "name": name,
+                        "wing_context": wing,
+                        "note_id": note.id,
+                    },
+                    source=f"triage:{note.id}",
+                    confidence=0.7,
+                )
+            )
+            inbox_created += 1
+
+        elif len(matches) == 1:
+            # Unique match — already known, no action needed
+            logger.info(
+                "Resolved '%s' to single match: %s",
+                name,
+                matches[0].get("title", ""),
+            )
+
+        else:
+            # Multiple matches — disambiguation needed
+            _inbox.create(
+                InboxItem(
+                    type=InboxType.DISAMBIGUATION,
+                    title=f"Which '{name}' is this?",
+                    summary=(
+                        f"Found {len(matches)} possible matches "
+                        f"for '{name}' mentioned in '{note.title or 'note'}'."
+                    ),
+                    payload={
+                        "name": name,
+                        "wing_context": wing,
+                        "note_id": note.id,
+                        "candidates": [
+                            {
+                                "summary": m.get(
+                                    "text", ""
+                                )[:200],
+                                "wing": m.get("wing", ""),
+                                "room": m.get("room", ""),
+                            }
+                            for m in matches
+                        ],
+                    },
+                    source=f"triage:{note.id}",
+                    confidence=0.4,
+                )
+            )
+            inbox_created += 1
+
+    return inbox_created
+
+
+async def _find_person_matches(name: str) -> list[dict]:
+    """Search MemPalace for people matching a name."""
+    try:
+        result = await _memory.search(
+            query=name,
+            wing="people",
+            room="contacts",
+            limit=5,
+        )
+        results = result.get("results", [])
+        # Filter to results that actually contain the name token
+        name_lower = name.lower()
+        filtered = [
+            r
+            for r in results
+            if name_lower in r.get("text", "").lower()
+        ]
+        return filtered
+    except Exception:
+        logger.exception("Person search failed for %s", name)
+        return []
+
+
+async def _check_learned_mapping(
+    name: str, wing: str
+) -> str | None:
+    """Check if we've previously learned what '<name>' means in <wing>."""
+    try:
+        # Stored as: subject="name:Michal", predicate="in_wing:conetic",
+        #            object="Michal Zawada"
+        result = await _memory.kg_query(
+            entity=f"name:{name}"
+        )
+        # Result format depends on mempalace — check facts
+        facts = result.get("facts", [])
+        for fact in facts:
+            pred = fact.get("predicate", "")
+            obj = fact.get("object", "")
+            if pred == f"in_wing:{wing}":
+                return obj
+        return None
+    except Exception:
+        return None
 
 
 def _parse_json(text: str) -> dict | None:

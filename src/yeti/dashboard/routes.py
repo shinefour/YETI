@@ -359,45 +359,144 @@ async def inbox_active_partial():
             "</div>"
         )
 
-    payload_html = ""
-    if active.payload:
-        import json as _json
-
-        payload_html = (
-            f'<pre style="white-space:pre-wrap;font-size:0.8rem;'
-            f'color:var(--text-dim);margin-top:1rem">'
-            f"{_json.dumps(active.payload, indent=2)}</pre>"
-        )
+    body_html, actions_html = _render_inbox_body(active)
 
     return f"""
     <div class="card">
       <h2>{active.type.value.replace('_', ' ').title()}</h2>
       <h3 style="margin:0.5rem 0">{active.title}</h3>
       <p class="muted">{active.summary}</p>
-      {payload_html}
-      <div style="margin-top:1.5rem;display:flex;gap:0.5rem">
-        <button class="badge badge-green"
-                hx-post="/api/inbox/{active.id}/resolve"
-                hx-vals='{{"resolution":"approved"}}'
-                hx-swap="none"
-                hx-on::after-request="
-                  document.getElementById('inbox-active')
-                  .dispatchEvent(new Event('refresh'))">
-          Approve
-        </button>
-        <button class="badge badge-red"
-                hx-post="/api/inbox/{active.id}/resolve"
-                hx-vals='{{"resolution":"rejected"}}'
-                hx-swap="none"
-                hx-on::after-request="
-                  document.getElementById('inbox-active')
-                  .dispatchEvent(new Event('refresh'))">
-          Reject
-        </button>
+      {body_html}
+      <div style="margin-top:1.5rem;display:flex;gap:0.5rem;
+                  flex-wrap:wrap">
+        {actions_html}
       </div>
     </div>
     {upcoming_html}
     """
+
+
+def _render_inbox_body(item) -> tuple[str, str]:
+    """Render the body and action buttons for an inbox item by type."""
+    from yeti.models.inbox import InboxType
+
+    payload = item.payload or {}
+
+    if item.type == InboxType.DISAMBIGUATION:
+        candidates = payload.get("candidates", [])
+        cards = "".join(
+            f'<div class="card" style="margin:0.5rem 0;'
+            f'cursor:pointer;border-left:3px solid var(--accent)" '
+            f'onclick="resolveDisamb(\'{item.id}\', '
+            f"this.dataset.choice)\" "
+            f'data-choice="{_extract_name(c)}">'
+            f'<div style="font-size:0.85rem">{c.get("summary", "")}</div>'
+            f'<div class="muted" style="font-size:0.7rem;'
+            f'margin-top:0.3rem">{c.get("wing", "")}/'
+            f'{c.get("room", "")}</div></div>'
+            for c in candidates
+        )
+        body = f"""
+        <p class="muted" style="margin-top:1rem">
+          Pick the right person for "{payload.get('name', '')}"
+          (in {payload.get('wing_context', '?')} context):
+        </p>
+        {cards}
+        <script>
+        function resolveDisamb(itemId, choice) {{
+          fetch('/api/inbox/' + itemId + '/resolve', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            credentials: 'include',
+            body: JSON.stringify({{resolution: choice}})
+          }}).then(() => {{
+            document.getElementById('inbox-active')
+              .dispatchEvent(new Event('refresh'));
+          }});
+        }}
+        </script>
+        """
+        actions = (
+            f'<button class="badge badge-dim" '
+            f'hx-post="/api/inbox/{item.id}/resolve" '
+            f"hx-vals='{{\"resolution\":\"none_match\"}}' "
+            f'hx-swap="none" '
+            f"hx-on::after-request=\""
+            f"document.getElementById('inbox-active')"
+            f".dispatchEvent(new Event('refresh'))\">"
+            f"None of these</button>"
+        )
+        return body, actions
+
+    if item.type == InboxType.PERSON_UPDATE:
+        body = (
+            f'<div style="margin-top:1rem">'
+            f'<input type="text" id="full-name-{item.id}" '
+            f'placeholder="Full name (e.g. {payload.get("name", "")} Surname)" '
+            f'style="width:100%;padding:0.6rem 0.75rem;'
+            f"background:transparent;border:1px solid var(--border);"
+            f"border-radius:4px;color:var(--text);font-size:0.9rem\"/>"
+            f"</div>"
+        )
+        actions = (
+            f'<button class="badge badge-green" '
+            f'onclick="resolvePerson(\'{item.id}\')">Save</button>'
+            f' <button class="badge badge-red" '
+            f'hx-post="/api/inbox/{item.id}/resolve" '
+            f"hx-vals='{{\"resolution\":\"ignored\"}}' "
+            f'hx-swap="none" '
+            f"hx-on::after-request=\""
+            f"document.getElementById('inbox-active')"
+            f".dispatchEvent(new Event('refresh'))\">"
+            f"Ignore</button>"
+            f'<script>function resolvePerson(id) {{'
+            f"const name = document.getElementById('full-name-' + id).value;"
+            f"fetch('/api/inbox/' + id + '/resolve', {{"
+            f"method:'POST',headers:{{'Content-Type':'application/json'}},"
+            f"credentials:'include',"
+            f"body: JSON.stringify({{resolution: name || 'saved'}})"
+            f"}}).then(() => document.getElementById('inbox-active')"
+            f".dispatchEvent(new Event('refresh')));"
+            f"}}</script>"
+        )
+        return body, actions
+
+    # Default: payload as JSON + approve/reject
+    import json as _json
+
+    body = (
+        f'<pre style="white-space:pre-wrap;font-size:0.8rem;'
+        f'color:var(--text-dim);margin-top:1rem">'
+        f"{_json.dumps(payload, indent=2)}</pre>"
+        if payload
+        else ""
+    )
+    actions = (
+        f'<button class="badge badge-green" '
+        f'hx-post="/api/inbox/{item.id}/resolve" '
+        f"hx-vals='{{\"resolution\":\"approved\"}}' "
+        f'hx-swap="none" '
+        f'hx-on::after-request="'
+        f"document.getElementById('inbox-active')"
+        f".dispatchEvent(new Event('refresh'))\">Approve</button>"
+        f' <button class="badge badge-red" '
+        f'hx-post="/api/inbox/{item.id}/resolve" '
+        f"hx-vals='{{\"resolution\":\"rejected\"}}' "
+        f'hx-swap="none" '
+        f'hx-on::after-request="'
+        f"document.getElementById('inbox-active')"
+        f".dispatchEvent(new Event('refresh'))\">Reject</button>"
+    )
+    return body, actions
+
+
+def _extract_name(candidate: dict) -> str:
+    """Extract the contact name from a candidate's summary text."""
+    text = candidate.get("summary", "")
+    for line in text.split("\n"):
+        if line.startswith("Name:"):
+            return line.split(":", 1)[1].strip()
+    return text[:50]
 
 
 def _dot_for(state: str) -> str:
