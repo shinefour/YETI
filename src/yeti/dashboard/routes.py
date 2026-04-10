@@ -461,6 +461,13 @@ def _render_inbox_body(item) -> tuple[str, str]:
         )
         return body, actions
 
+    # Image fallback: low-confidence OCR with image to review
+    if (
+        item.type == InboxType.NOTIFICATION
+        and payload.get("image_id")
+    ):
+        return _render_image_fallback(item, payload)
+
     # Default: payload as JSON + approve/reject
     import json as _json
 
@@ -487,6 +494,104 @@ def _render_inbox_body(item) -> tuple[str, str]:
         f"document.getElementById('inbox-active')"
         f".dispatchEvent(new Event('refresh'))\">Reject</button>"
     )
+    return body, actions
+
+
+def _render_image_fallback(
+    item, payload: dict
+) -> tuple[str, str]:
+    """Render manual review form for an image-fallback inbox item."""
+    image_id = payload.get("image_id", "")
+    raw = payload.get("raw_text", "")
+    extracted = payload.get("extracted") or {}
+
+    fields = [
+        ("name", "Name"),
+        ("company", "Company"),
+        ("title", "Title"),
+        ("email", "Email"),
+        ("phone", "Phone"),
+        ("address", "Address"),
+        ("website", "Website"),
+    ]
+    inputs = "".join(
+        f'<div style="margin-bottom:0.5rem">'
+        f'<label class="muted" style="font-size:0.75rem">'
+        f"{label}</label>"
+        f'<input type="text" '
+        f'id="img-{item.id}-{key}" '
+        f'value="{extracted.get(key, "")}" '
+        f'style="width:100%;padding:0.5rem 0.6rem;'
+        f"background:transparent;border:1px solid var(--border);"
+        f"border-radius:4px;color:var(--text);"
+        f'font-size:0.85rem;margin-top:0.2rem"/>'
+        f"</div>"
+        for key, label in fields
+    )
+
+    raw_html = (
+        f'<details style="margin-top:1rem">'
+        f'<summary class="muted" style="cursor:pointer;'
+        f'font-size:0.8rem">Raw OCR ({len(raw)} chars)</summary>'
+        f'<pre style="white-space:pre-wrap;font-size:0.75rem;'
+        f'color:var(--text-dim);margin-top:0.5rem">{raw}</pre>'
+        f"</details>"
+        if raw
+        else ""
+    )
+
+    body = f"""
+    <div style="display:grid;grid-template-columns:1fr 1fr;
+                gap:1rem;margin-top:1rem">
+      <div>
+        <img src="/api/images/{image_id}"
+             style="max-width:100%;max-height:400px;
+                    border:1px solid var(--border);border-radius:4px"/>
+      </div>
+      <div>
+        {inputs}
+      </div>
+    </div>
+    {raw_html}
+    """
+
+    field_keys = ",".join(f"'{k}'" for k, _ in fields)
+    actions = f"""
+    <button class="badge badge-green"
+            onclick="saveImageReview('{item.id}', [{field_keys}])">
+      Save & Store
+    </button>
+    <button class="badge badge-red"
+            hx-post="/api/inbox/{item.id}/resolve"
+            hx-vals='{{"resolution":"discarded"}}'
+            hx-swap="none"
+            hx-on::after-request="
+              document.getElementById('inbox-active')
+              .dispatchEvent(new Event('refresh'))">
+      Discard
+    </button>
+    <script>
+    function saveImageReview(itemId, fields) {{
+      const data = {{}};
+      fields.forEach(f => {{
+        const el = document.getElementById('img-' + itemId + '-' + f);
+        if (el && el.value) data[f] = el.value;
+      }});
+      fetch('/api/inbox/' + itemId + '/resolve', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        credentials: 'include',
+        body: JSON.stringify({{
+          resolution: 'manual_save',
+          note: JSON.stringify(data)
+        }})
+      }}).then(() => {{
+        document.getElementById('inbox-active')
+          .dispatchEvent(new Event('refresh'));
+      }});
+    }}
+    </script>
+    """
     return body, actions
 
 

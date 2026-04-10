@@ -247,21 +247,29 @@ async def handle_photo(
 
     photo = update.message.photo[-1]
     file = await photo.get_file()
-    image_bytes = await file.download_as_bytearray()
+    image_bytes = bytes(await file.download_as_bytearray())
     caption = update.message.caption or ""
+
+    # Always save the image first — never lose data
+    from yeti.vision.storage import save_image
+
+    image_id = save_image(image_bytes)
 
     from yeti.vision.extract import extract
 
-    result = await extract(bytes(image_bytes), caption)
+    result = await extract(image_bytes, caption)
+    confidence = result.get("confidence", 0.0)
+    needs_review = result.get("needs_review", True)
+    data = result.get("structured")
 
-    lines = []
-    method = result.get("method", "unknown")
-    lines.append(f"Method: {method}")
+    lines = [
+        f"Method: {result.get('method', 'unknown')}",
+        f"Confidence: {confidence:.0%}",
+    ]
 
     if "error" in result:
         lines.append(f"Error: {result['error']}")
 
-    data = result.get("structured")
     if data:
         lines.append(json.dumps(data, indent=2))
 
@@ -269,8 +277,11 @@ async def handle_photo(
     if raw:
         lines.append(f"\nRaw OCR:\n{raw[:500]}")
 
-    # Store in MemPalace if we got structured data
-    if data and data.get("type") == "business_card":
+    # Decide where to send it
+    if not needs_review and data:
+        wing, room = _wing_for_doc_type(
+            data.get("type", "")
+        )
         try:
             from yeti.memory.client import MemPalaceClient
 
@@ -278,39 +289,67 @@ async def handle_photo(
             content = json.dumps(data, indent=2)
             if caption:
                 content = f"Context: {caption}\n\n{content}"
+            content += f"\n\nImage: /api/images/{image_id}"
             await mem.store(
                 content=content,
-                wing="people",
-                room="contacts",
+                wing=wing,
+                room=room,
                 source="telegram-photo",
             )
-            lines.append("\nStored in memory (people/contacts)")
+            lines.append(f"\nStored in memory ({wing}/{room})")
         except Exception:
             logger.exception("Failed to store in memory")
-
-    if data and data.get("type") == "receipt":
+    else:
+        # Low confidence — create inbox item for manual review
         try:
-            from yeti.memory.client import MemPalaceClient
-
-            mem = MemPalaceClient()
-            content = json.dumps(data, indent=2)
-            if caption:
-                content = f"Context: {caption}\n\n{content}"
-            await mem.store(
-                content=content,
-                wing="finance",
-                room="receipts",
-                source="telegram-photo",
+            from yeti.models.inbox import (
+                InboxItem,
+                InboxStore,
+                InboxType,
             )
-            lines.append("\nStored in memory (finance/receipts)")
+
+            inbox = InboxStore()
+            inbox.create(
+                InboxItem(
+                    type=InboxType.NOTIFICATION,
+                    title="Image needs manual review",
+                    summary=(
+                        f"OCR confidence {confidence:.0%}. "
+                        f"Caption: {caption}"
+                        if caption
+                        else f"OCR confidence {confidence:.0%}."
+                    ),
+                    payload={
+                        "image_id": image_id,
+                        "method": result.get("method", ""),
+                        "confidence": confidence,
+                        "raw_text": raw,
+                        "extracted": data or {},
+                        "caption": caption,
+                    },
+                    source="telegram-photo",
+                    confidence=confidence,
+                )
+            )
+            lines.append(
+                "\nLow confidence — saved to inbox for review"
+            )
         except Exception:
-            logger.exception("Failed to store in memory")
+            logger.exception("Failed to create inbox item")
 
     response = "\n".join(lines)
     if len(response) > 4000:
         response = response[:4000] + "\n...(truncated)"
 
     await update.message.reply_text(response)
+
+
+def _wing_for_doc_type(doc_type: str) -> tuple[str, str]:
+    if doc_type == "business_card":
+        return ("people", "contacts")
+    if doc_type == "receipt":
+        return ("finance", "receipts")
+    return ("general", "documents")
 
 
 def _build_app() -> Application:

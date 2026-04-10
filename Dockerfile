@@ -19,8 +19,8 @@ COPY src/ src/
 # Install the package in editable mode for development
 RUN pip install --no-cache-dir -e .
 
-# Initialize mempalace data directory and config
-RUN mkdir -p /data/mempalace /root/.mempalace \
+# Initialize data directories and mempalace config
+RUN mkdir -p /data/mempalace /data/yeti/images /root/.mempalace \
     && echo '{"palace_path": "/data/mempalace", "collection_name": "mempalace_drawers"}' > /root/.mempalace/config.json
 
 EXPOSE 8000

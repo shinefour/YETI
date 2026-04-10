@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from yeti.agents.chat import chat as chat_agent
+from yeti.api.images import router as images_router
 from yeti.api.inbox import router as inbox_router
 from yeti.api.memory import router as memory_router
 from yeti.api.notes import router as notes_router
@@ -39,6 +40,7 @@ app.include_router(tasks_router)
 app.include_router(inbox_router)
 app.include_router(notes_router)
 app.include_router(memory_router)
+app.include_router(images_router)
 app.include_router(usage_router)
 app.include_router(dashboard_router)
 

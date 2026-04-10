@@ -59,7 +59,67 @@ async def resolve_inbox_item(item_id: str, body: dict):
     if item.type == InboxType.DISAMBIGUATION and resolution:
         await _store_disambiguation_learning(item, resolution)
 
+    # Image fallback manual save → store in MemPalace
+    if (
+        item.type == InboxType.NOTIFICATION
+        and item.payload.get("image_id")
+        and resolution == "manual_save"
+        and note
+    ):
+        await _store_image_review(item, note)
+
     return item.model_dump()
+
+
+async def _store_image_review(
+    item: InboxItem, note_json: str
+) -> None:
+    """Store manually-reviewed image data in MemPalace."""
+    import json as _json
+
+    from yeti.memory.client import MemPalaceClient
+
+    try:
+        data = _json.loads(note_json)
+    except _json.JSONDecodeError:
+        logger.warning(
+            "Image review note was not JSON: %s", note_json[:100]
+        )
+        return
+
+    if not any(data.values()):
+        return
+
+    payload = item.payload
+    image_id = payload.get("image_id", "")
+    caption = payload.get("caption", "")
+
+    if data.get("vendor") or data.get("total"):
+        wing, room = "finance", "receipts"
+        data["type"] = "receipt"
+    else:
+        wing, room = "people", "contacts"
+        data["type"] = "business_card"
+
+    content = _json.dumps(data, indent=2)
+    if caption:
+        content = f"Context: {caption}\n\n{content}"
+    content += f"\n\nImage: /api/images/{image_id}"
+    content += "\nReview: manual"
+
+    try:
+        client = MemPalaceClient()
+        await client.store(
+            content=content,
+            wing=wing,
+            room=room,
+            source="manual-review",
+        )
+        logger.info(
+            "Manual review stored in %s/%s", wing, room
+        )
+    except Exception:
+        logger.exception("Failed to store manual review")
 
 
 async def _store_disambiguation_learning(

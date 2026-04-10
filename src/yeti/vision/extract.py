@@ -246,6 +246,10 @@ async def extract(
     1. Detect best rotation
     2. Try Tesseract + Ollama (primary)
     3. Fall back to LLaVA if Tesseract gets nothing
+
+    The result includes a `confidence` field (0..1) and
+    `needs_review` (bool) so the caller can route low-confidence
+    results to manual review.
     """
     image = Image.open(BytesIO(image_bytes))
 
@@ -261,15 +265,50 @@ async def extract(
         oriented, caption
     )
 
-    # If Tesseract got text, return it
-    if result.get("raw_text"):
-        return result
+    # If Tesseract got nothing, fall back to LLaVA
+    if not result.get("raw_text"):
+        logger.info(
+            "Tesseract found nothing, falling back to LLaVA"
+        )
+        result = await extract_llava(oriented, caption)
 
-    # Fallback: LLaVA
-    logger.info(
-        "Tesseract found nothing, falling back to LLaVA"
+    confidence = _score_confidence(result)
+    result["confidence"] = confidence
+    result["needs_review"] = confidence < 0.5
+    return result
+
+
+def _score_confidence(result: dict) -> float:
+    """Heuristic confidence score for an extraction result."""
+    if "error" in result and not result.get("structured"):
+        return 0.0
+
+    structured = result.get("structured")
+    if not structured:
+        # Got raw text but no structure
+        raw = result.get("raw_text", "")
+        if len(raw) > 50:
+            return 0.3
+        return 0.1
+
+    doc_type = structured.get("type", "")
+    if doc_type == "business_card":
+        fields = ("name", "email", "phone", "company", "title")
+    elif doc_type == "receipt":
+        fields = ("vendor", "total", "date")
+    else:
+        fields = ()
+
+    if not fields:
+        return 0.5
+
+    populated = sum(
+        1
+        for f in fields
+        if structured.get(f) and str(structured[f]).strip()
     )
-    return await extract_llava(oriented, caption)
+    score = populated / len(fields)
+    return round(score, 2)
 
 
 def _parse_json_response(text: str) -> dict | None:
