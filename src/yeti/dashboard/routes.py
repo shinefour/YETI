@@ -113,6 +113,10 @@ async def status_sidebar_partial():
     from yeti.app import get_system_status
 
     data = await get_system_status()
+    divider = (
+        "border-top:1px solid var(--border);"
+        "padding-top:0.75rem;margin-top:0.75rem"
+    )
     rows = ["<h3>Services</h3>"]
     for name, state in data.get("services", {}).items():
         dot = _dot_for(state)
@@ -120,7 +124,9 @@ async def status_sidebar_partial():
             f'<div class="status-item">'
             f'<span class="name">{name}</span>{dot}</div>'
         )
-    rows.append("<h3 style='margin-top:0.5rem'>Integrations</h3>")
+    rows.append(
+        f'<h3 style="{divider}">Integrations</h3>'
+    )
     for name, state in data.get("integrations", {}).items():
         dot = _dot_for(state)
         rows.append(
