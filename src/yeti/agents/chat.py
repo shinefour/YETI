@@ -233,6 +233,36 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_search_with_ids",
+            "description": (
+                "Search drawers and return results WITH their "
+                "drawer IDs. Use this when you need to find a "
+                "specific drawer to delete or move. Returns id, "
+                "text preview, wing, room for each match."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What to search for",
+                    },
+                    "wing": {
+                        "type": "string",
+                        "description": "Filter by wing",
+                    },
+                    "room": {
+                        "type": "string",
+                        "description": "Filter by room",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -278,6 +308,12 @@ async def _handle_tool_call(tool_call) -> str:
     elif name == "memory_delete_drawer":
         result = await _memory.delete_drawer(
             drawer_id=args["drawer_id"]
+        )
+    elif name == "memory_search_with_ids":
+        result = await _memory.search_drawers_with_ids(
+            query=args["query"],
+            wing=args.get("wing"),
+            room=args.get("room"),
         )
     else:
         result = {"error": f"Unknown tool: {name}"}

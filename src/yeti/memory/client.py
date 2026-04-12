@@ -369,6 +369,57 @@ class MemPalaceClient:
             {"drawer_id": drawer_id},
         )
 
+    async def search_drawers_with_ids(
+        self,
+        query: str,
+        wing: str | None = None,
+        room: str | None = None,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Search drawers and return results WITH drawer IDs.
+
+        Hits ChromaDB directly since the MCP search tool doesn't
+        expose IDs. Each result has: id, text, wing, room, metadata.
+        """
+        import chromadb
+
+        try:
+            client = chromadb.PersistentClient(
+                path=self.palace_path
+            )
+            col = client.get_collection("mempalace_drawers")
+
+            where = {}
+            if wing:
+                where["wing"] = wing
+            if room:
+                where["room"] = room
+
+            result = col.query(
+                query_texts=[query],
+                n_results=min(limit, col.count()),
+                where=where or None,
+                include=["documents", "metadatas", "distances"],
+            )
+
+            items = []
+            for i, doc in enumerate(result["documents"][0]):
+                meta = result["metadatas"][0][i]
+                items.append(
+                    {
+                        "id": result["ids"][0][i],
+                        "text": doc[:500],
+                        "wing": meta.get("wing", ""),
+                        "room": meta.get("room", ""),
+                        "metadata": meta,
+                        "distance": result["distances"][0][i],
+                    }
+                )
+            return items
+        except Exception:
+            logger.exception("Direct ChromaDB search failed")
+            return []
+
     async def close(self):
         """Shut down the MCP server subprocess."""
         if (
