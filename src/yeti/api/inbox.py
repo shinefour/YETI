@@ -123,6 +123,61 @@ async def _store_image_review(
         logger.exception("Failed to store manual review")
 
 
+async def _store_person_drawer(
+    item: InboxItem, answer: dict
+) -> None:
+    """Persist a PERSON_UPDATE answer as a searchable contact drawer.
+
+    Without this, `interpret_answer` writes KG facts only — the next
+    triage run searches `people/contacts` drawers and re-asks the
+    same "Who is X?" question because the contact never materialized
+    there.
+    """
+    from yeti.memory.client import MemPalaceClient
+
+    full_name = str(answer.get("full_name", "") or "").strip()
+    if not full_name:
+        return
+
+    payload = item.payload or {}
+    mentioned_as = payload.get("mentioned_as", "")
+    role = str(answer.get("role", "") or "").strip()
+    company = str(answer.get("company", "") or "").strip()
+    context = str(answer.get("context", "") or "").strip()
+
+    lines = [f"Name: {full_name}"]
+    if mentioned_as and mentioned_as != full_name:
+        lines.append(f"Mentioned as: {mentioned_as}")
+    if role:
+        lines.append(f"Role: {role}")
+    if company:
+        lines.append(f"Company: {company}")
+    if context:
+        lines.extend(["", context])
+    if item.source_note_id:
+        lines.extend(["", f"Learned from note: {item.source_note_id}"])
+
+    content = "\n".join(lines)
+
+    try:
+        client = MemPalaceClient()
+        await client.store(
+            content=content,
+            wing="people",
+            room="contacts",
+            source=f"inbox-answer:{item.id}",
+        )
+        logger.info(
+            "Stored contact drawer for %s (mentioned as %s)",
+            full_name,
+            mentioned_as or "n/a",
+        )
+    except Exception:
+        logger.exception(
+            "Failed to store contact drawer for %s", full_name
+        )
+
+
 async def _store_disambiguation_learning(
     item: InboxItem, chosen_full_name: str
 ) -> None:
@@ -130,7 +185,7 @@ async def _store_disambiguation_learning(
     from yeti.memory.client import MemPalaceClient
 
     payload = item.payload or {}
-    name = payload.get("name", "")
+    name = payload.get("mentioned_as", "")
     wing = payload.get("wing_context", "")
     if not name or not wing:
         return
@@ -186,6 +241,9 @@ async def answer_inbox_item(item_id: str, body: dict):
         return JSONResponse(
             {"error": str(e)}, status_code=500
         )
+
+    if item.type == InboxType.PERSON_UPDATE:
+        await _store_person_drawer(item, answer)
 
     store.resolve(
         item_id,

@@ -296,6 +296,16 @@ async def _resolve_people(
         matches = await _find_person_matches(name)
 
         if len(matches) == 0:
+            if _inbox.has_pending_for_person(
+                InboxType.PERSON_UPDATE, name, wing
+            ):
+                logger.info(
+                    "Skipping duplicate PERSON_UPDATE for '%s' in %s",
+                    name,
+                    wing,
+                )
+                continue
+
             # Unknown person — schema-driven new contact form
             _inbox.create(
                 InboxItem(
@@ -349,6 +359,16 @@ async def _resolve_people(
             )
 
         else:
+            if _inbox.has_pending_for_person(
+                InboxType.DISAMBIGUATION, name, wing
+            ):
+                logger.info(
+                    "Skipping duplicate DISAMBIGUATION for '%s' in %s",
+                    name,
+                    wing,
+                )
+                continue
+
             # Multiple matches — disambiguation as choice schema
             candidate_names = [
                 _extract_candidate_name(m) for m in matches

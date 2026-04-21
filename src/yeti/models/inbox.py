@@ -216,6 +216,37 @@ class InboxStore:
             ).fetchall()
         return [self._row_to_item(r) for r in rows]
 
+    def has_pending_for_person(
+        self, item_type: InboxType, mentioned_as: str, wing: str
+    ) -> bool:
+        """True if a pending item already asks about this name+wing.
+
+        Used by triage to skip creating a second PERSON_UPDATE or
+        DISAMBIGUATION for the same person when emails arrive
+        back-to-back before Daniel resolves the first one.
+        """
+        if not mentioned_as:
+            return False
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT payload FROM inbox
+                WHERE type = ? AND status = 'pending'
+                """,
+                (item_type.value,),
+            ).fetchall()
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            if (
+                payload.get("mentioned_as") == mentioned_as
+                and payload.get("wing_context") == wing
+            ):
+                return True
+        return False
+
     def count_pending(self) -> int:
         with self._conn() as conn:
             row = conn.execute(
