@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     dashboard_api_key: str = ""
+    # Publicly reachable URL of the dashboard (for Telegram deep links).
+    # Empty = no URL buttons; bot falls back to a text hint.
+    dashboard_public_url: str = ""
     db_path: str = "data/yeti.db"
 
     # --- AI Model Keys ---

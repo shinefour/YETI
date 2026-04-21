@@ -36,6 +36,16 @@ tools to search and store memories when relevant to the
 conversation. Memories are organized in Wings (projects, people,
 domains) and Rooms (decisions, meetings, architecture, etc.).
 
+You also have tools to inspect Daniel's live work queues:
+- inbox_list: the clarification/decision queue — items waiting for
+  Daniel to answer or approve. These are NOT committed actions.
+- tasks_list: committed work (active/blocked/completed/cancelled).
+- notes_list_pending: raw notes captured but not yet triaged.
+- status_summary: one-shot counts across inbox, tasks, notes.
+Use these when Daniel asks what's in his inbox, what's on his
+plate, or for a status overview. Do not resolve or modify inbox
+items — Daniel acts on them via buttons in Telegram or the dashboard.
+
 When you identify a need for a memory tool that isn't available
 yet, mention it to Daniel. The following tools exist in MemPalace
 but aren't wired up in YETI yet:
@@ -263,7 +273,117 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "inbox_list",
+            "description": (
+                "List pending inbox items (the clarification / "
+                "decision queue). Use when Daniel asks what's in "
+                "his inbox, what's waiting, or wants to review "
+                "pending questions. Read-only — does not resolve."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tasks_list",
+            "description": (
+                "List tasks (committed work). Optional status "
+                "filter: active (default), blocked, completed, "
+                "cancelled."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "active",
+                            "blocked",
+                            "completed",
+                            "cancelled",
+                        ],
+                        "description": (
+                            "Task status filter (default: active)"
+                        ),
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "notes_list_pending",
+            "description": (
+                "List raw notes captured but not yet processed by "
+                "the triage agent. Use when Daniel asks what's "
+                "still waiting to be processed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "status_summary",
+            "description": (
+                "One-shot counts across inbox, tasks, and notes. "
+                "Use for 'status' or 'overview' requests before "
+                "drilling in with the list tools."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
 ]
+
+
+def _summarize_inbox(item) -> dict:
+    return {
+        "id": item.id,
+        "type": item.type.value,
+        "title": item.title,
+        "summary": (item.summary or "")[:200],
+        "confidence": round(item.confidence, 2),
+        "quick_actions": item.quick_actions,
+        "has_form": bool(item.answer_schema),
+        "created_at": item.created_at,
+    }
+
+
+def _summarize_task(item) -> dict:
+    return {
+        "id": item.id,
+        "title": item.title,
+        "status": item.status.value,
+        "project": item.project,
+        "assignee": item.assignee,
+        "due_date": item.due_date,
+        "context": (item.context or "")[:200],
+        "created_at": item.created_at,
+    }
+
+
+def _summarize_note(item) -> dict:
+    return {
+        "id": item.id,
+        "source": item.source.value,
+        "status": item.status.value,
+        "preview": (item.content or "")[:200],
+        "created_at": item.created_at,
+    }
 
 
 async def _handle_tool_call(tool_call) -> str:
@@ -315,6 +435,64 @@ async def _handle_tool_call(tool_call) -> str:
             wing=args.get("wing"),
             room=args.get("room"),
         )
+    elif name == "inbox_list":
+        from yeti.models.inbox import InboxStore
+
+        items = InboxStore().list_pending()[:20]
+        result = {
+            "count": len(items),
+            "items": [_summarize_inbox(i) for i in items],
+        }
+    elif name == "tasks_list":
+        from yeti.models.tasks import TaskStatus, TaskStore
+
+        status_arg = args.get("status", "active")
+        try:
+            status = TaskStatus(status_arg)
+        except ValueError:
+            result = {
+                "error": (
+                    f"Unknown status '{status_arg}'. "
+                    "Use active, blocked, completed, or cancelled."
+                )
+            }
+        else:
+            items = TaskStore().list(status=status)[:20]
+            result = {
+                "status": status.value,
+                "count": len(items),
+                "items": [_summarize_task(i) for i in items],
+            }
+    elif name == "notes_list_pending":
+        from yeti.models.notes import NoteStatus, NoteStore
+
+        items = NoteStore().list_by_status(
+            NoteStatus.PENDING, limit=20
+        )
+        result = {
+            "count": len(items),
+            "items": [_summarize_note(i) for i in items],
+        }
+    elif name == "status_summary":
+        from yeti.models.inbox import InboxStore
+        from yeti.models.notes import NoteStatus, NoteStore
+        from yeti.models.tasks import TaskStatus, TaskStore
+
+        task_store = TaskStore()
+        result = {
+            "inbox_pending": InboxStore().count_pending(),
+            "tasks_active": len(
+                task_store.list(status=TaskStatus.ACTIVE)
+            ),
+            "tasks_blocked": len(
+                task_store.list(status=TaskStatus.BLOCKED)
+            ),
+            "notes_pending": len(
+                NoteStore().list_by_status(
+                    NoteStatus.PENDING, limit=1000
+                )
+            ),
+        }
     else:
         result = {"error": f"Unknown tool: {name}"}
 

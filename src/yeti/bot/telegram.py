@@ -40,6 +40,7 @@ async def cmd_start(update: Update, context) -> None:
         "YETI is online. Commands:\n"
         "/status — system status\n"
         "/actions — pending tasks\n"
+        "/inbox — pending inbox items\n"
         "/add <title> — create task\n"
         "/note <text> — capture note for triage\n"
         "Or just send a message to chat."
@@ -121,6 +122,72 @@ async def cmd_add(update: Update, context) -> None:
     )
 
 
+def _inbox_keyboard(item) -> InlineKeyboardMarkup | None:
+    """Build inline keyboard for an inbox item based on its quick_actions.
+
+    Items with a non-empty answer_schema (multi-field forms) cannot be
+    resolved by a single button — render only a dashboard deep link, or
+    omit the keyboard entirely if no public URL is configured.
+    """
+    if item.answer_schema:
+        if settings.dashboard_public_url:
+            url = (
+                settings.dashboard_public_url.rstrip("/")
+                + "/dashboard/inbox"
+            )
+            return InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Open in dashboard", url=url)]]
+            )
+        return None
+
+    action_buttons = {
+        "discard": ("Discard", f"inbox_discard:{item.id}"),
+        "convert_to_task": (
+            "\u2192 Task",
+            f"inbox_convert:{item.id}",
+        ),
+        "approve_as_task": ("Approve", f"inbox_approve:{item.id}"),
+    }
+    row = []
+    for action in item.quick_actions:
+        btn = action_buttons.get(action)
+        if btn:
+            row.append(
+                InlineKeyboardButton(btn[0], callback_data=btn[1])
+            )
+    if not row:
+        return None
+    return InlineKeyboardMarkup([row])
+
+
+async def cmd_inbox(update: Update, context) -> None:
+    if not _is_authorized(update):
+        return
+
+    from yeti.models.inbox import InboxStore
+
+    items = InboxStore().list_pending()
+
+    if not items:
+        await update.message.reply_text("Inbox is empty.")
+        return
+
+    for item in items:
+        summary = (item.summary or "")[:300]
+        body = f"[{item.type.value}] {item.title}"
+        if summary:
+            body += f"\n{summary}"
+        keyboard = _inbox_keyboard(item)
+        if keyboard is None:
+            body += (
+                "\n\n(This item needs a full form — "
+                "resolve in the dashboard.)"
+            )
+        await update.message.reply_text(
+            body, reply_markup=keyboard
+        )
+
+
 async def cmd_note(update: Update, context) -> None:
     """Capture a note for triage."""
     if not _is_authorized(update):
@@ -172,6 +239,10 @@ async def handle_callback(
     data = query.data
     action, item_id = data.split(":", 1)
 
+    if action.startswith("inbox_"):
+        await _handle_inbox_callback(query, action, item_id)
+        return
+
     store = TaskStore()
     status_map = {
         "approve": TaskStatus.ACTIVE,
@@ -190,6 +261,73 @@ async def handle_callback(
         )
     else:
         await query.edit_message_text("Item not found.")
+
+
+async def _handle_inbox_callback(
+    query, action: str, item_id: str
+) -> None:
+    """Resolve an inbox item from a Telegram inline button press."""
+    from yeti.models.inbox import InboxStore
+
+    inbox = InboxStore()
+    item = inbox.get(item_id)
+    if not item:
+        await query.edit_message_text("Inbox item not found.")
+        return
+
+    if action == "inbox_discard":
+        inbox.resolve(item_id, "discarded")
+        await query.edit_message_text(
+            f"DISCARDED: {item.title}"
+        )
+        return
+
+    if action in ("inbox_convert", "inbox_approve"):
+        import httpx
+
+        path = (
+            "convert-to-task"
+            if action == "inbox_convert"
+            else "approve-task"
+        )
+        url = f"http://localhost:8000/api/inbox/{item_id}/{path}"
+        body: dict = (
+            {"answer": {"title": item.title}}
+            if action == "inbox_approve"
+            else {}
+        )
+        headers = (
+            {"x-api-key": settings.dashboard_api_key}
+            if settings.dashboard_api_key
+            else {}
+        )
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.post(url, json=body, headers=headers)
+        except Exception:
+            logger.exception("Inbox callback HTTP failed")
+            await query.edit_message_text(
+                f"Could not reach API for: {item.title}"
+            )
+            return
+
+        if r.status_code >= 400:
+            await query.edit_message_text(
+                f"API error {r.status_code}: {item.title}"
+            )
+            return
+
+        label = (
+            "CONVERTED"
+            if action == "inbox_convert"
+            else "APPROVED"
+        )
+        await query.edit_message_text(f"{label}: {item.title}")
+        return
+
+    await query.edit_message_text(
+        f"Unknown inbox action: {action}"
+    )
 
 
 async def handle_message(
@@ -339,6 +477,7 @@ def _build_app() -> Application:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("actions", cmd_actions))
+    app.add_handler(CommandHandler("inbox", cmd_inbox))
     app.add_handler(CommandHandler("add", cmd_add))
     app.add_handler(CommandHandler("note", cmd_note))
     app.add_handler(CallbackQueryHandler(handle_callback))
