@@ -42,6 +42,14 @@ evidence in the content (e.g. "this is a Conetic meeting" stated \
 plainly), not topical similarity. When in doubt, use the default \
 wing.
 
+If the additional context mentions a "Wing:" from a wing-scoped \
+source (e.g. a specific mailbox), that wing is NON-NEGOTIABLE. \
+Storage will be pinned to it regardless of what you return. If the \
+content clearly belongs to another entity, surface that as a \
+clarification — DO NOT silently reroute by returning a different \
+wing. Topical similarity to another organisation is not grounds \
+for re-routing.
+
 Return ONLY a JSON object with this shape:
 {{
   "type": "meeting_note" | "email" | "idea" | "status" | "other",
@@ -135,6 +143,15 @@ async def _apply_triage_result(
     counts = {"facts": 0, "inbox": 0}
 
     wing = result.get("wing", "general").lower()
+    if note.forced_wing:
+        forced = note.forced_wing.lower()
+        if wing != forced:
+            logger.info(
+                "Triage wing override: %s -> %s (source forced)",
+                wing,
+                forced,
+            )
+        wing = forced
     room = result.get("room", "notes").lower()
     title = result.get("title", "Note")
     note_type = result.get("type", "other")

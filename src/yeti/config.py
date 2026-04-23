@@ -68,8 +68,40 @@ class Settings(BaseSettings):
     gmail_client_id: str = ""
     gmail_client_secret: str = ""
     gmail_email: str = ""
-    # Wing this mailbox belongs to — used to bias triage routing
-    gmail_default_wing: str = "globalstudio"
+    # Wing this mailbox is pinned to. Hard enforced at triage time:
+    # content ingested from the Gmail mailbox is stored under this
+    # wing regardless of what the triage LLM infers. Keep the legacy
+    # name `gmail_default_wing` as an alias for one release.
+    gmail_forced_wing: str = "globalstudio"
+    gmail_default_wing: str = ""  # deprecated alias; falls back to _forced
+
+    # Outlook (Microsoft Graph) — multi-mailbox support.
+    # Format: comma-separated "email:wing" pairs, e.g.
+    # "daniel.mundt@above.aero:above,daniel.mundt@coneticgroup.com:conetic"
+    # Each mailbox is hard-pinned to its wing; no cross-wing routing.
+    outlook_mailboxes: str = ""
+
+    def gmail_wing(self) -> str:
+        """Resolve the Gmail forced wing, honouring the legacy alias."""
+        return (
+            self.gmail_forced_wing
+            or self.gmail_default_wing
+            or "globalstudio"
+        )
+
+    def outlook_mailbox_map(self) -> dict[str, str]:
+        """Parse outlook_mailboxes into {email: wing}."""
+        out: dict[str, str] = {}
+        for entry in self.outlook_mailboxes.split(","):
+            entry = entry.strip()
+            if not entry or ":" not in entry:
+                continue
+            email, wing = entry.split(":", 1)
+            email = email.strip().lower()
+            wing = wing.strip().lower()
+            if email and wing:
+                out[email] = wing
+        return out
 
     model_config = {
         "env_prefix": "YETI_",

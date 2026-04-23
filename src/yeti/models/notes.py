@@ -39,6 +39,10 @@ class Note(BaseModel):
     source: NoteSource = NoteSource.API
     title: str = ""
     context: str = ""  # optional caption / additional context
+    # If set, triage must store the note under this wing, overriding any
+    # wing the LLM infers. Used by wing-scoped ingestion sources (e.g.
+    # specific mailboxes) where cross-wing routing is a correctness bug.
+    forced_wing: str = ""
     status: NoteStatus = NoteStatus.PENDING
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat()
@@ -70,6 +74,7 @@ class NoteStore:
                     source TEXT DEFAULT 'api',
                     title TEXT DEFAULT '',
                     context TEXT DEFAULT '',
+                    forced_wing TEXT DEFAULT '',
                     status TEXT DEFAULT 'pending',
                     created_at TEXT NOT NULL,
                     processed_at TEXT,
@@ -85,6 +90,18 @@ class NoteStore:
                 CREATE INDEX IF NOT EXISTS idx_notes_created
                 ON notes(created_at)
             """)
+            # Migrate existing installs: add forced_wing column if missing.
+            cols = {
+                r[1]
+                for r in conn.execute(
+                    "PRAGMA table_info(notes)"
+                ).fetchall()
+            }
+            if "forced_wing" not in cols:
+                conn.execute(
+                    "ALTER TABLE notes "
+                    "ADD COLUMN forced_wing TEXT DEFAULT ''"
+                )
 
     def create(self, note: Note) -> Note:
         with self._conn() as conn:
@@ -92,9 +109,9 @@ class NoteStore:
                 """
                 INSERT INTO notes
                     (id, content, source, title, context,
-                     status, created_at, processed_at,
-                     triage_summary, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     forced_wing, status, created_at,
+                     processed_at, triage_summary, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     note.id,
@@ -102,6 +119,7 @@ class NoteStore:
                     note.source.value,
                     note.title,
                     note.context,
+                    note.forced_wing,
                     note.status.value,
                     note.created_at,
                     note.processed_at,

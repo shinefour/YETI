@@ -189,6 +189,23 @@ async def get_system_status() -> dict:
     else:
         integrations["gmail"] = "not_configured"
 
+    # Outlook (per mailbox)
+    outlook_map = settings.outlook_mailbox_map()
+    if outlook_map and settings.microsoft_client_id:
+        from yeti.integrations.outlook import OutlookAdapter
+
+        for email in outlook_map:
+            key = f"outlook:{email}"
+            try:
+                ok = await OutlookAdapter(email).health()
+                integrations[key] = (
+                    "connected" if ok else "needs_auth"
+                )
+            except Exception:
+                integrations[key] = "error"
+    elif not settings.microsoft_client_id:
+        integrations["outlook"] = "not_configured"
+
     for name in ["teams", "slack", "calendar"]:
         integrations[name] = "not_configured"
 

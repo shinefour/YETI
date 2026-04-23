@@ -30,6 +30,10 @@ celery_app.conf.beat_schedule = {
         "task": "yeti.worker.sync_gmail",
         "schedule": 300.0,
     },
+    "outlook-sync": {
+        "task": "yeti.worker.sync_outlook",
+        "schedule": 300.0,
+    },
 }
 
 
@@ -260,11 +264,10 @@ def _sync_gmail_sync():
             f"{msg.get('body', '') or msg.get('snippet', '')}"
         )
 
-        default_wing = settings.gmail_default_wing or ""
+        forced_wing = settings.gmail_wing()
         wing_hint = (
-            f" Default wing: {default_wing}."
-            if default_wing
-            else ""
+            f" Wing: {forced_wing}. "
+            "(Strictly scoped — do not cross-route.)"
         )
         note = note_store.create(
             Note(
@@ -272,9 +275,11 @@ def _sync_gmail_sync():
                 title=title,
                 context=(
                     f"Email received via Gmail mailbox "
-                    f"({settings.gmail_email}).{wing_hint}"
+                    f"({settings.gmail_email})."
+                    f"{wing_hint}"
                 ),
                 source=NoteSource.EMAIL,
+                forced_wing=forced_wing,
             )
         )
         triage_note.delay(note.id)
@@ -286,6 +291,142 @@ def _sync_gmail_sync():
 
     logger.info(
         "Gmail sync: ingested=%d skipped=%d deduped=%d",
+        ingested,
+        skipped,
+        deduped,
+    )
+
+
+@celery_app.task
+def sync_outlook():
+    """Pull new Outlook messages for every configured mailbox."""
+    if not settings.microsoft_client_id:
+        return
+    mailbox_map = settings.outlook_mailbox_map()
+    if not mailbox_map:
+        return
+    for email, wing in mailbox_map.items():
+        try:
+            _sync_outlook_one(email, wing)
+        except Exception:
+            logger.exception(
+                "Outlook sync failed for %s", email
+            )
+
+
+def _sync_outlook_one(email: str, wing: str):
+    """Sync a single Outlook mailbox into its pinned wing.
+
+    Per-mailbox watermark + dedup via SyncStateStore. Never modifies
+    the mailbox. First sync backfills the last 24 hours.
+    """
+    from yeti.email.filters import filter_email
+    from yeti.integrations.outlook import OutlookAdapter
+    from yeti.models.notes import Note, NoteSource, NoteStore
+    from yeti.models.sync_state import SyncStateStore
+
+    mailbox = f"outlook:{email}"
+    state = SyncStateStore()
+
+    since = state.get_watermark(mailbox)
+    if since is None:
+        since = datetime.now(UTC) - timedelta(hours=24)
+        logger.info(
+            "Outlook first sync for %s: backfilling last 24h",
+            email,
+        )
+
+    try:
+        adapter = OutlookAdapter(email)
+        messages = adapter.list_messages_since(
+            since, max_results=100
+        )
+    except RuntimeError as e:
+        logger.warning(
+            "Outlook sync skipped for %s: %s", email, e
+        )
+        return
+    except Exception:
+        logger.exception(
+            "Outlook sync failed for %s", email
+        )
+        return
+
+    if not messages:
+        return
+
+    note_store = NoteStore()
+    ingested = 0
+    skipped = 0
+    deduped = 0
+    newest_ts = since
+    for msg in messages:
+        msg_id = msg["id"]
+
+        if state.already_seen(mailbox, msg_id):
+            deduped += 1
+            continue
+
+        try:
+            received = datetime.fromisoformat(
+                (msg.get("received_at") or "").replace(
+                    "Z", "+00:00"
+                )
+            )
+            if received > newest_ts:
+                newest_ts = received
+        except (ValueError, TypeError):
+            pass
+
+        sender = msg.get("from", "")
+        should_ingest, reason = filter_email(
+            sender, msg.get("headers", {})
+        )
+
+        state.mark_seen(mailbox, msg_id)
+
+        if not should_ingest:
+            logger.info(
+                "Skipped email from %s (%s): %s",
+                sender,
+                email,
+                reason,
+            )
+            skipped += 1
+            continue
+
+        title = msg.get("subject", "(no subject)")
+        content = (
+            f"From: {sender}\n"
+            f"To: {msg.get('to', '')}\n"
+            f"Subject: {title}\n"
+            f"Date: {msg.get('date', '')}\n"
+            f"\n"
+            f"{msg.get('body', '') or msg.get('snippet', '')}"
+        )
+
+        note = note_store.create(
+            Note(
+                content=content,
+                title=title,
+                context=(
+                    f"Email received via Outlook mailbox "
+                    f"({email}). Wing: {wing}. "
+                    f"(Strictly scoped — do not cross-route.)"
+                ),
+                source=NoteSource.EMAIL,
+                forced_wing=wing,
+            )
+        )
+        triage_note.delay(note.id)
+        ingested += 1
+
+    if newest_ts > since:
+        state.set_watermark(mailbox, newest_ts)
+
+    logger.info(
+        "Outlook sync %s: ingested=%d skipped=%d deduped=%d",
+        email,
         ingested,
         skipped,
         deduped,

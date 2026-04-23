@@ -116,6 +116,88 @@ def gmail_auth(
         )
 
 
+@app.command(name="outlook-auth")
+def outlook_auth(
+    mailbox: str = typer.Argument(
+        ..., help="Mailbox email, e.g. daniel.mundt@above.aero"
+    ),
+    upload: bool = typer.Option(
+        True,
+        "--upload/--no-upload",
+        help="Upload token cache to remote YETI server after auth",
+    ),
+):
+    """Run the Outlook OAuth flow for one mailbox. Run once per mailbox."""
+    from pathlib import Path
+
+    from yeti.config import settings
+    from yeti.integrations.outlook import (
+        run_oauth_flow,
+        token_path_for,
+    )
+
+    mailbox = mailbox.strip().lower()
+    configured = settings.outlook_mailbox_map()
+    if mailbox not in configured:
+        console.print(
+            f"[red]Mailbox {mailbox} not listed in "
+            f"YETI_OUTLOOK_MAILBOXES. Add it first.[/red]"
+        )
+        raise typer.Exit(1)
+
+    local_token = Path("data/outlook") / token_path_for(mailbox).name
+    local_token.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        claims = run_oauth_flow(mailbox, local_token)
+    except Exception as e:
+        console.print(f"[red]OAuth flow failed: {e}[/red]")
+        raise typer.Exit(1) from e
+
+    tid = claims.get("tid", "?")
+    upn = claims.get("preferred_username") or claims.get("upn", "?")
+    console.print(
+        f"[green]Authenticated[/green] {upn}  "
+        f"[dim]tenant={tid}[/dim]  "
+        f"wing=[bold]{configured[mailbox]}[/bold]"
+    )
+    console.print(
+        f"[green]Token saved locally to[/green] {local_token}"
+    )
+
+    if not upload:
+        console.print(
+            f"[dim]Skipping upload. On the server, copy to "
+            f"{token_path_for(mailbox)}[/dim]"
+        )
+        return
+
+    try:
+        token_blob = local_token.read_text()
+        r = httpx.post(
+            f"{_api_url()}/api/integrations/outlook/token",
+            headers={
+                **_headers(),
+                "Content-Type": "application/json",
+            },
+            json={"mailbox": mailbox, "token": token_blob},
+            timeout=30,
+        )
+        if r.is_success:
+            console.print(
+                "[green]Token uploaded to server.[/green]"
+            )
+        else:
+            console.print(
+                f"[red]Upload failed: {r.status_code} {r.text}[/red]"
+            )
+    except httpx.ConnectError:
+        console.print(
+            "[red]Cannot reach YETI API. "
+            "Token saved locally; copy it manually.[/red]"
+        )
+
+
 @app.command()
 def chat(message: str = typer.Argument(None, help="Message to send to YETI")):
     """Chat with YETI. If no message is provided, starts an interactive session."""

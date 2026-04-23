@@ -63,3 +63,55 @@ async def gmail_status():
         "expired": creds.expired,
         "has_refresh": bool(creds.refresh_token),
     }
+
+
+@router.post("/outlook/token")
+async def upload_outlook_token(body: dict):
+    """Receive an Outlook OAuth token cache from the CLI flow."""
+    from yeti.config import settings
+    from yeti.integrations.outlook import save_token_blob
+
+    mailbox = (body.get("mailbox") or "").strip().lower()
+    token = body.get("token", "")
+    if not mailbox or not token:
+        return JSONResponse(
+            {"error": "mailbox and token fields required"},
+            status_code=400,
+        )
+
+    if mailbox not in settings.outlook_mailbox_map():
+        return JSONResponse(
+            {
+                "error": (
+                    f"{mailbox} not listed in "
+                    "YETI_OUTLOOK_MAILBOXES"
+                )
+            },
+            status_code=400,
+        )
+
+    try:
+        path = save_token_blob(mailbox, token)
+    except Exception as e:
+        logger.exception(
+            "Failed to save Outlook token for %s", mailbox
+        )
+        return JSONResponse(
+            {"error": str(e)}, status_code=500
+        )
+
+    return {"saved": True, "mailbox": mailbox, "path": str(path)}
+
+
+@router.get("/outlook/status")
+async def outlook_status():
+    """Per-mailbox Outlook credential status."""
+    from yeti.config import settings
+    from yeti.integrations.outlook import credential_status
+
+    result = {}
+    for email, wing in settings.outlook_mailbox_map().items():
+        status = credential_status(email)
+        status["wing"] = wing
+        result[email] = status
+    return result
