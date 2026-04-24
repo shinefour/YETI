@@ -9,15 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-deu \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# uv — drop-in faster pip with a real resolver
+RUN pip install --no-cache-dir uv
+
+# Copy project and install in a single pass
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
-
-# Copy application code
 COPY src/ src/
-
-# Install the package in editable mode for development
-RUN pip install --no-cache-dir -e .
+RUN uv pip install --system --no-cache -e .
 
 # Initialize data directories and mempalace config
 RUN mkdir -p /data/mempalace /data/yeti/images /root/.mempalace \
