@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from celery import Celery
 from celery.schedules import crontab
 
@@ -345,6 +346,20 @@ def _sync_outlook_one(email: str, wing: str):
         logger.warning(
             "Outlook sync skipped for %s: %s", email, e
         )
+        return
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Outlook sync HTTP error for %s: %s %s",
+            email,
+            e.response.status_code,
+            e.response.text[:200],
+        )
+        # 4xx is non-retryable (auth / permissions / mailbox gone).
+        # Advance watermark so we stop re-scanning the same 24h window
+        # every tick until a human intervenes. 5xx / network errors
+        # fall through and keep the watermark so retries pick them up.
+        if 400 <= e.response.status_code < 500:
+            state.set_watermark(mailbox, datetime.now(UTC))
         return
     except Exception:
         logger.exception(
