@@ -129,11 +129,31 @@ async def status_sidebar_partial():
     )
     for name, state in data.get("integrations", {}).items():
         dot = _dot_for(state)
+        label = _integration_label(name)
         rows.append(
-            f'<div class="status-item">'
-            f'<span class="name">{name}</span>{dot}</div>'
+            f'<div class="status-item" title="{name}">'
+            f'<span class="name">{label}</span>{dot}</div>'
         )
     return "\n".join(rows)
+
+
+def _integration_label(name: str) -> str:
+    """Short, readable label for the sidebar.
+
+    Collapses `outlook:<email>` to `outlook · <wing>` when the mailbox
+    is configured; otherwise just `outlook · <email local-part>`. Full
+    value remains available via the row's title attribute.
+    """
+    if not name.startswith("outlook:"):
+        return name
+    from yeti.config import settings
+
+    email = name.split(":", 1)[1]
+    wing = settings.outlook_mailbox_map().get(email.lower())
+    if wing:
+        return f"outlook · {wing}"
+    local = email.split("@", 1)[0]
+    return f"outlook · {local}"
 
 
 @router.get("/events")
