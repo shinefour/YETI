@@ -192,6 +192,15 @@ async def _apply_triage_result(
     # 3. Create inbox items for proposed action items
     # (user reviews and approves before they become real tasks)
     for action in result.get("action_items", []):
+        action_title = action.get("title") or ""
+        if _inbox.has_pending_with_title(
+            InboxType.PROPOSED_ACTION, action_title
+        ):
+            logger.info(
+                "Skipping duplicate PROPOSED_ACTION '%s'",
+                action_title,
+            )
+            continue
         try:
             _inbox.create(
                 InboxItem(
@@ -244,6 +253,14 @@ async def _apply_triage_result(
 
     # 4. Create inbox items for clarifications (schema-driven)
     for clarification in result.get("clarifications", []):
+        clar_title = clarification.get("question") or ""
+        if _inbox.has_pending_with_title(
+            InboxType.DECISION, clar_title
+        ):
+            logger.info(
+                "Skipping duplicate DECISION '%s'", clar_title
+            )
+            continue
         try:
             _inbox.create(
                 InboxItem(

@@ -247,6 +247,28 @@ class InboxStore:
                 return True
         return False
 
+    def has_pending_with_title(
+        self, item_type: InboxType, title: str
+    ) -> bool:
+        """True if a pending item with same type and exact title exists.
+
+        Cheap way to dedup DECISION / PROPOSED_ACTION items where the
+        triage LLM produces the same question/action across multiple
+        related emails (thread replies, recurring statuses).
+        """
+        if not title:
+            return False
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM inbox
+                WHERE type = ? AND status = 'pending' AND title = ?
+                LIMIT 1
+                """,
+                (item_type.value, title),
+            ).fetchone()
+        return row is not None
+
     def count_pending(self) -> int:
         with self._conn() as conn:
             row = conn.execute(
