@@ -313,6 +313,17 @@ async def _resolve_people(
         matches = await _find_person_matches(name)
 
         if len(matches) == 0:
+            # Drawer search missed, but the KG may know this person
+            # already (e.g. facts written by chat or by an earlier
+            # disambiguation). Treat any KG hit on the bare name as
+            # "known" and skip creating an inbox prompt.
+            if await _person_known_in_kg(name):
+                logger.info(
+                    "Resolved '%s' via KG facts (no contact drawer)",
+                    name,
+                )
+                continue
+
             if _inbox.has_pending_for_person(
                 InboxType.PERSON_UPDATE, name, wing
             ):
@@ -376,6 +387,16 @@ async def _resolve_people(
             )
 
         else:
+            # If the KG already distinguishes this exact name (e.g.
+            # "Daniel Costa" has its own facts), the LLM-extracted
+            # name is unambiguous to memory. Skip disambiguation.
+            if await _person_known_in_kg(name):
+                logger.info(
+                    "Resolved '%s' via KG facts; skipping disambiguation",
+                    name,
+                )
+                continue
+
             if _inbox.has_pending_for_person(
                 InboxType.DISAMBIGUATION, name, wing
             ):
@@ -461,6 +482,31 @@ async def _find_person_matches(name: str) -> list[dict]:
     except Exception:
         logger.exception("Person search failed for %s", name)
         return []
+
+
+async def _person_known_in_kg(name: str) -> bool:
+    """True if the KG has any fact mentioning this name as an entity.
+
+    Catches people that were added via chat (kg_add with bare-name
+    subjects like "Daniel Costa") rather than via the inbox flow that
+    writes a `name:<X>` indirection. Without this, triage keeps asking
+    "Who is X?" even when the system can describe X in full.
+    """
+    if not name or not name.strip():
+        return False
+    try:
+        result = await _memory.kg_query(entity=name)
+        facts = result.get("facts") or []
+        if not isinstance(facts, list):
+            return False
+        return any(
+            (f.get("subject") or "").lower() == name.lower()
+            or (f.get("object") or "").lower() == name.lower()
+            for f in facts
+        )
+    except Exception:
+        logger.exception("KG lookup failed for %s", name)
+        return False
 
 
 async def _check_learned_mapping(
