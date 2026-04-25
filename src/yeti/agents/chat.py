@@ -425,6 +425,7 @@ async def _handle_tool_call(tool_call) -> str:
             query=args["query"],
             wing=args.get("wing"),
             room=args.get("room"),
+            source="chat",
         )
     elif name == "memory_store":
         result = await _memory.store(
@@ -433,7 +434,9 @@ async def _handle_tool_call(tool_call) -> str:
             room=args["room"],
         )
     elif name == "memory_kg_query":
-        result = await _memory.kg_query(entity=args["entity"])
+        result = await _memory.kg_query(
+            entity=args["entity"], source="chat"
+        )
     elif name == "memory_kg_add":
         result = await _memory.kg_add(
             subject=args["subject"],
@@ -463,6 +466,7 @@ async def _handle_tool_call(tool_call) -> str:
             query=args["query"],
             wing=args.get("wing"),
             room=args.get("room"),
+            source="chat",
         )
     elif name == "inbox_list":
         from yeti.models.inbox import InboxStore

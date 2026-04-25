@@ -8,6 +8,52 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+_usage_store = None
+
+
+def _usage():
+    """Lazy-singleton usage store. Returns None if init fails."""
+    global _usage_store
+    if _usage_store is None:
+        try:
+            from yeti.memory.usage import UsageStore
+
+            _usage_store = UsageStore()
+        except Exception:
+            logger.exception("UsageStore init failed")
+            _usage_store = False  # sentinel — give up trying
+    return _usage_store or None
+
+
+def _log_search(query: str, source: str) -> None:
+    s = _usage()
+    if s is not None:
+        try:
+            s.log_search(query, source)
+        except Exception:
+            logger.exception("usage log_search failed")
+
+
+def _log_kg(entity: str, source: str) -> None:
+    s = _usage()
+    if s is not None:
+        try:
+            s.log_kg_query(entity, source)
+        except Exception:
+            logger.exception("usage log_kg_query failed")
+
+
+def _log_drawer_hits(
+    ids: list[str], source: str, query: str | None = None
+) -> None:
+    s = _usage()
+    if s is not None:
+        try:
+            s.log_drawer_hits(ids, source, query)
+        except Exception:
+            logger.exception("usage log_drawer_hits failed")
+
 # All known mempalace MCP tools and their status
 TOOLS = {
     # Implemented — wired up and available
@@ -259,13 +305,16 @@ class MemPalaceClient:
         wing: str | None = None,
         room: str | None = None,
         limit: int = 5,
+        source: str = "unknown",
     ) -> dict:
         args = {"query": query, "limit": limit}
         if wing:
             args["wing"] = wing
         if room:
             args["room"] = room
-        return await self.call_tool("mempalace_search", args)
+        result = await self.call_tool("mempalace_search", args)
+        _log_search(query, source)
+        return result
 
     async def store(
         self,
@@ -308,11 +357,14 @@ class MemPalaceClient:
         self,
         entity: str,
         as_of: str | None = None,
+        source: str = "unknown",
     ) -> dict:
         args = {"entity": entity}
         if as_of:
             args["as_of"] = as_of
-        return await self.call_tool("mempalace_kg_query", args)
+        result = await self.call_tool("mempalace_kg_query", args)
+        _log_kg(entity, source)
+        return result
 
     async def kg_add(
         self,
@@ -375,6 +427,7 @@ class MemPalaceClient:
         wing: str | None = None,
         room: str | None = None,
         limit: int = 5,
+        source: str = "unknown",
     ) -> list[dict]:
         """Search drawers and return results WITH drawer IDs.
 
@@ -415,6 +468,9 @@ class MemPalaceClient:
                         "distance": result["distances"][0][i],
                     }
                 )
+            _log_drawer_hits(
+                [it["id"] for it in items], source, query
+            )
             return items
         except Exception:
             logger.exception("Direct ChromaDB search failed")

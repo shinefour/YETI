@@ -486,6 +486,7 @@ async def _find_person_matches(name: str) -> list[dict]:
             wing="people",
             room="contacts",
             limit=5,
+            source="triage",
         )
         results = result.get("results", [])
         # Filter to results that actually contain the name token
@@ -512,7 +513,7 @@ async def _person_known_in_kg(name: str) -> bool:
     if not name or not name.strip():
         return False
     try:
-        result = await _memory.kg_query(entity=name)
+        result = await _memory.kg_query(entity=name, source="triage")
         facts = result.get("facts") or []
         if not isinstance(facts, list):
             return False
@@ -534,7 +535,7 @@ async def _check_learned_mapping(
         # Stored as: subject="name:Michal", predicate="in_wing:conetic",
         #            object="Michal Zawada"
         result = await _memory.kg_query(
-            entity=f"name:{name}"
+            entity=f"name:{name}", source="triage"
         )
         # Result format depends on mempalace — check facts
         facts = result.get("facts", [])

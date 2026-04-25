@@ -37,6 +37,7 @@ async def search_memory(body: dict):
         wing=body.get("wing"),
         room=body.get("room"),
         limit=body.get("limit", 5),
+        source=body.get("source", "api"),
     )
 
 
@@ -68,6 +69,7 @@ async def kg_query(body: dict):
     return await _client.kg_query(
         entity=entity,
         as_of=body.get("as_of"),
+        source=body.get("source", "api"),
     )
 
 
