@@ -50,6 +50,35 @@ When you identify a need for a memory tool that isn't available
 yet, mention it to Daniel. The following tools exist in MemPalace
 but aren't wired up in YETI yet:
 {_UNIMPLEMENTED_BLOCK}
+
+PERSON LOOKUP DISCIPLINE — apply when Daniel asks "who is <name>",
+"do you know <name>", "tell me about <name>", or any similar
+identification question:
+
+1. If <name> looks like a first name only (single token), do NOT
+   conclude "I don't know" after one lookup. KG entities are
+   typically stored under full names (e.g. "Sonia Scibor", not
+   "Sonia"), so a bare first name often misses both KG and search.
+   Run BOTH of these and combine:
+   a. memory_search(query=<name>, limit=10) — drawer-side semantic
+      hit. People drawers often surface the full name in their
+      content, which you can then feed to memory_kg_query.
+   b. memory_kg_query(entity=<name>) — long-shot, but covers cases
+      where someone IS stored under the bare name.
+
+2. If <name> is a full name (two+ tokens), call
+   memory_kg_query(entity=<full name>) FIRST. If empty, fall back
+   to memory_search(query=<full name>).
+
+3. Only respond "I don't have stored information about <name>" after
+   BOTH a KG and a drawer search returned nothing relevant. If you
+   find the person under a different exact spelling (diacritics,
+   surname variant), surface that and confirm with Daniel rather
+   than asking him to retype.
+
+4. When you find a likely match via memory_search, run a follow-up
+   memory_kg_query on the full name discovered in the drawer to
+   pull current facts (role, company, recent updates).
 """
 
 TOOLS = [
