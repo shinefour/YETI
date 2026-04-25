@@ -1274,7 +1274,8 @@ async def people_needs_profile_partial():
             + (f" · last {last}" if last else "")
         )
         rows.append(
-            f'<div class="status-row">'
+            f'<div class="status-row" '
+            f'data-gap-email="{_escape(email)}">'
             f'<span style="flex:1;min-width:0">'
             f'<strong>{_escape(display)}</strong>'
             f'<div class="muted" '
@@ -1287,7 +1288,7 @@ async def people_needs_profile_partial():
             f"'{_escape(name)}','{_escape(email)}',{count})\">"
             f"Add profile via chat</button>"
             f'<button class="btn btn-ghost btn-sm" '
-            f"onclick=\"ignoreSender('{_escape(email)}')\">"
+            f"onclick=\"ignoreSender(this,'{_escape(email)}')\">"
             f"Ignore (system)</button>"
             f"</span>"
             f"</div>"
@@ -1457,6 +1458,7 @@ async def people_contacts_partial(q: str = ""):
             )
         rows.append(
             f'<div class="status-row" '
+            f'data-drawer-id="{_escape(it["id"])}" '
             f'style="cursor:pointer" '
             f"onclick=\"openContact('{_escape(it['id'])}',"
             f"'{_escape(it['name'])}')\">"

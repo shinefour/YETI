@@ -55,7 +55,7 @@
 </div>
 
 <script>
-window.ignoreSender = async function(email) {
+window.ignoreSender = async function(btn, email) {
     if (!email) return;
     const ok = window.confirm(
         'Mark "' + email + '" as automated/system? Future emails ' +
@@ -63,6 +63,12 @@ window.ignoreSender = async function(email) {
         'in Needs Profile again.'
     );
     if (!ok) return;
+    const row = btn && btn.closest
+        ? btn.closest('.status-row')
+        : document.querySelector(
+            '[data-gap-email="' + email + '"]'
+        );
+    if (row) row.remove();
     const r = await fetch('/dashboard/api/email-blacklist', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -72,6 +78,7 @@ window.ignoreSender = async function(email) {
             reason: 'automated/system (marked from People page)'
         })
     });
+    const gaps = document.getElementById('people-gaps');
     if (!r.ok) {
         let detail = r.status;
         try {
@@ -79,16 +86,11 @@ window.ignoreSender = async function(email) {
             detail = j.error || detail;
         } catch (e) { /* ignore */ }
         alert('Failed: ' + detail);
+        if (window.htmx && gaps) htmx.trigger(gaps, 'load');
         return;
     }
-    const gaps = document.getElementById('people-gaps');
     if (window.htmx && gaps) {
         htmx.trigger(gaps, 'load');
-    } else if (gaps) {
-        const resp = await fetch(
-            '/dashboard/partials/people-needs-profile'
-        );
-        gaps.innerHTML = await resp.text();
     }
 };
 
@@ -148,11 +150,17 @@ window.deleteContact = async function() {
         '"? This cannot be undone.'
     );
     if (!ok) return;
+    const row = document.querySelector(
+        '[data-drawer-id="' + c.id + '"]'
+    );
+    if (row) row.remove();
+    closeContact();
     const r = await fetch(
         '/dashboard/api/contacts/' +
         encodeURIComponent(c.id) + '/delete',
         { method: 'POST', credentials: 'include' }
     );
+    const search = document.getElementById('people-search');
     if (!r.ok) {
         let detail = r.status;
         try {
@@ -160,19 +168,11 @@ window.deleteContact = async function() {
             detail = j.error || detail;
         } catch (e) { /* ignore */ }
         alert('Delete failed: ' + detail);
+        if (window.htmx && search) htmx.trigger(search, 'keyup');
         return;
     }
-    closeContact();
-    const search = document.getElementById('people-search');
-    const list = document.getElementById('people-contacts');
     if (window.htmx && search) {
         htmx.trigger(search, 'keyup');
-    } else if (list) {
-        const q = search ? encodeURIComponent(search.value || '') : '';
-        const resp = await fetch(
-            '/dashboard/partials/people-contacts?q=' + q
-        );
-        list.innerHTML = await resp.text();
     }
 };
 </script>
