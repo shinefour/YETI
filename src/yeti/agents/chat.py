@@ -542,6 +542,35 @@ async def chat(
     """
     messages: list = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+    # First-turn self-drawer onboarding — if Daniel hasn't set up the
+    # canonical self drawer yet, nudge the agent to ask once. We only
+    # do this on a fresh conversation so we don't pester mid-session.
+    if not conversation_history:
+        try:
+            from yeti.identity import self_drawer_present
+
+            if not await self_drawer_present():
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "ONBOARDING: Daniel has not set up his "
+                            "canonical self profile yet. After "
+                            "answering his current message, ask one "
+                            "concise question — what full name and "
+                            "first-name forms should YETI treat as "
+                            "him — and use memory_store to write a "
+                            "drawer in wing=people, room=contacts "
+                            "with source='self' once he answers. "
+                            "Mention `yeti setup-self` as the "
+                            "scripted alternative. Only do this "
+                            "once per conversation."
+                        ),
+                    }
+                )
+        except Exception:
+            logger.exception("self_drawer_present check failed")
+
     if conversation_history:
         messages.extend(conversation_history)
 

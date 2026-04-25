@@ -116,6 +116,93 @@ def gmail_auth(
         )
 
 
+@app.command(name="setup-self")
+def setup_self(
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite an existing self drawer"
+    ),
+):
+    """Walk through 3 prompts and write the canonical self drawer.
+
+    Idempotent: if a self drawer already exists, exits unless --force
+    is passed. The drawer feeds triage's `_find_person_matches`, the
+    chat agent's first-turn check, and any future self-detection step.
+    """
+    import asyncio
+
+    from yeti.identity import (
+        self_drawer_present,
+        write_self_drawer,
+    )
+
+    async def _check():
+        return await self_drawer_present()
+
+    if not force:
+        if asyncio.run(_check()):
+            console.print(
+                "[yellow]A self drawer already exists. "
+                "Re-run with --force to overwrite.[/yellow]"
+            )
+            return
+
+    console.print(
+        "[bold]Setting up your YETI self profile.[/bold]\n"
+    )
+    full_name = Prompt.ask(
+        "What full name should I treat as you?"
+    ).strip()
+    if not full_name:
+        console.print("[red]Empty name — aborting.[/red]")
+        raise typer.Exit(1)
+
+    raw_aliases = Prompt.ask(
+        "Any first-name / nickname forms people use for you "
+        "(comma-separated, blank for none)",
+        default="",
+    ).strip()
+    aliases = [
+        a.strip()
+        for a in raw_aliases.split(",")
+        if a.strip()
+    ]
+
+    raw_emails = Prompt.ask(
+        "Your work emails (comma-separated, blank for none)",
+        default="",
+    ).strip()
+    emails = [
+        e.strip()
+        for e in raw_emails.split(",")
+        if e.strip()
+    ]
+
+    notes = Prompt.ask(
+        "One-line role / context (optional)", default=""
+    ).strip()
+
+    async def _write():
+        return await write_self_drawer(
+            full_name=full_name,
+            aliases=aliases,
+            emails=emails,
+            notes=notes,
+        )
+
+    drawer_id = asyncio.run(_write())
+    if drawer_id:
+        console.print(
+            f"[green]Self drawer stored.[/green] "
+            f"[dim]({drawer_id})[/dim]"
+        )
+    else:
+        console.print(
+            "[red]Failed to store self drawer. "
+            "Check MemPalace connectivity.[/red]"
+        )
+        raise typer.Exit(1)
+
+
 @app.command(name="outlook-auth")
 def outlook_auth(
     mailbox: str = typer.Argument(

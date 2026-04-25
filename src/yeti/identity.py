@@ -116,6 +116,93 @@ def render_contact_drawer(name: str, facts: list[dict]) -> str:
     return "\n".join(lines)
 
 
+SELF_SOURCE = "self"
+_SELF_WING = "people"
+_SELF_ROOM = "contacts"
+
+
+def render_self_drawer(
+    full_name: str,
+    aliases: list[str] | None,
+    emails: list[str] | None,
+    notes: str = "",
+) -> str:
+    """Render the canonical self drawer body."""
+    full_name = (full_name or "").strip()
+    aliases = [a.strip() for a in (aliases or []) if a and a.strip()]
+    emails = [e.strip() for e in (emails or []) if e and e.strip()]
+
+    lines = [f"Name: {full_name}"]
+    if aliases:
+        lines.append(
+            "Aliases / first-name forms: " + ", ".join(aliases)
+        )
+    if emails:
+        for em in emails:
+            lines.append(f"Email: {em}")
+    lines.append("")
+    lines.append("This is the YETI system owner.")
+    lines.append(
+        "Any reference to these names or emails is a "
+        "self-reference — no need to ask 'who is X?'."
+    )
+    if notes:
+        lines.append("")
+        lines.append(notes.strip())
+    return "\n".join(lines)
+
+
+async def self_drawer_present(
+    client: MemPalaceClient | None = None,
+) -> bool:
+    """True if a drawer with source='self' exists in people/contacts."""
+    client = client or MemPalaceClient()
+    try:
+        drawers = await client.search_drawers_with_ids(
+            query="YETI system owner",
+            wing=_SELF_WING,
+            room=_SELF_ROOM,
+            limit=10,
+            source="self-check",
+        )
+    except Exception:
+        logger.exception("self_drawer_present search failed")
+        return False
+    for d in drawers:
+        meta = d.get("metadata") or {}
+        added_by = meta.get("added_by") or meta.get("source")
+        if added_by == SELF_SOURCE:
+            return True
+    return False
+
+
+async def write_self_drawer(
+    full_name: str,
+    aliases: list[str] | None = None,
+    emails: list[str] | None = None,
+    notes: str = "",
+    client: MemPalaceClient | None = None,
+) -> str | None:
+    """Write the canonical self drawer (idempotent on source tag)."""
+    if not full_name or not full_name.strip():
+        return None
+    client = client or MemPalaceClient()
+    body = render_self_drawer(full_name, aliases, emails, notes)
+    try:
+        result = await client.store(
+            content=body,
+            wing=_SELF_WING,
+            room=_SELF_ROOM,
+            source=SELF_SOURCE,
+        )
+    except Exception:
+        logger.exception("write_self_drawer store failed")
+        return None
+    if isinstance(result, dict):
+        return result.get("drawer_id") or result.get("id")
+    return None
+
+
 async def ensure_contact_drawer(
     name: str,
     client: MemPalaceClient | None = None,

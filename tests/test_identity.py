@@ -131,3 +131,114 @@ async def test_ensure_noops_on_blank_name():
         await ensure_contact_drawer("", client=client) is None
     )
     assert client.stored == []
+
+
+def test_render_self_drawer_basic():
+    from yeti.identity import render_self_drawer
+
+    body = render_self_drawer(
+        full_name="Daniel Mundt",
+        aliases=["Daniel", "Dan"],
+        emails=["daniel@globalstudio.com"],
+    )
+    assert "Name: Daniel Mundt" in body
+    assert "Aliases / first-name forms: Daniel, Dan" in body
+    assert "Email: daniel@globalstudio.com" in body
+    assert "YETI system owner" in body
+
+
+def test_render_self_drawer_strips_blanks():
+    from yeti.identity import render_self_drawer
+
+    body = render_self_drawer(
+        full_name="Alice",
+        aliases=["", "  ", "Ali"],
+        emails=[None, "a@x.io", ""],
+    )
+    assert "Aliases / first-name forms: Ali" in body
+    assert "Email: a@x.io" in body
+
+
+class _SelfClient:
+    def __init__(self, drawers=None):
+        self.drawers = drawers or []
+        self.stored = []
+
+    async def search_drawers_with_ids(
+        self, query, wing=None, room=None, limit=5, source="x"
+    ):
+        return self.drawers
+
+    async def store(
+        self, content, wing, room, source="yeti"
+    ):
+        self.stored.append(
+            {
+                "content": content,
+                "wing": wing,
+                "room": room,
+                "source": source,
+            }
+        )
+        return {"drawer_id": "self-1"}
+
+
+@pytest.mark.asyncio
+async def test_self_drawer_present_true():
+    from yeti.identity import self_drawer_present
+
+    client = _SelfClient(
+        drawers=[
+            {
+                "id": "1",
+                "text": "...",
+                "metadata": {"added_by": "self"},
+            }
+        ]
+    )
+    assert await self_drawer_present(client=client) is True
+
+
+@pytest.mark.asyncio
+async def test_self_drawer_present_false():
+    from yeti.identity import self_drawer_present
+
+    client = _SelfClient(
+        drawers=[
+            {
+                "id": "1",
+                "text": "...",
+                "metadata": {"added_by": "triage:abc"},
+            }
+        ]
+    )
+    assert await self_drawer_present(client=client) is False
+
+
+@pytest.mark.asyncio
+async def test_write_self_drawer_writes_with_source_self():
+    from yeti.identity import write_self_drawer
+
+    client = _SelfClient()
+    drawer_id = await write_self_drawer(
+        full_name="Daniel Mundt",
+        aliases=["Daniel"],
+        emails=["d@x.io"],
+        client=client,
+    )
+    assert drawer_id == "self-1"
+    assert len(client.stored) == 1
+    rec = client.stored[0]
+    assert rec["wing"] == "people"
+    assert rec["room"] == "contacts"
+    assert rec["source"] == "self"
+    assert "Name: Daniel Mundt" in rec["content"]
+
+
+@pytest.mark.asyncio
+async def test_write_self_drawer_blank_name_noops():
+    from yeti.identity import write_self_drawer
+
+    client = _SelfClient()
+    assert await write_self_drawer("", client=client) is None
+    assert client.stored == []
