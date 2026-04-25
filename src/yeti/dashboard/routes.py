@@ -1534,7 +1534,8 @@ async def delete_contact_drawer(drawer_id: str):
 
     Bypasses the MCP `mempalace_delete_drawer` path because that
     occasionally returns success without removing the drawer.
-    Returns 200 on success even if the id wasn't present (idempotent).
+    Returns diagnostic state so we can see whether the id existed
+    and whether it's gone afterwards.
     """
     from fastapi.responses import JSONResponse
 
@@ -1552,15 +1553,25 @@ async def delete_contact_drawer(drawer_id: str):
         )
     try:
         client = MemPalaceClient()
-        col = chromadb.PersistentClient(
-            path=client.palace_path
-        ).get_collection("mempalace_drawers")
+        chroma = chromadb.PersistentClient(path=client.palace_path)
+        col_names = [c.name for c in chroma.list_collections()]
+        col = chroma.get_collection("mempalace_drawers")
+        before = col.get(ids=[drawer_id], include=["metadatas"])
+        existed_before = bool(before.get("ids"))
         col.delete(ids=[drawer_id])
+        after = col.get(ids=[drawer_id], include=["metadatas"])
+        existed_after = bool(after.get("ids"))
     except Exception as e:
         return JSONResponse(
             {"error": str(e)}, status_code=500
         )
-    return {"ok": True, "deleted": drawer_id}
+    return {
+        "ok": True,
+        "deleted": drawer_id,
+        "existed_before": existed_before,
+        "existed_after": existed_after,
+        "collections": col_names,
+    }
 
 
 @router.get(
