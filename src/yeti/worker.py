@@ -456,17 +456,24 @@ def _sync_outlook_one(email: str, wing: str):
 def sleep_deterministic():
     """Nightly deterministic memory consolidation.
 
-    Currently runs drawer dedupe (exact-text). Reconcile + gaps land
-    in subsequent commits. Each sub-op is idempotent and writes to an
-    audit trail (model tables) — safe to re-run.
+    Two passes today: drawer dedupe (exact-text) + KG fact reconcile
+    (predicate-group supersession). Each sub-op is idempotent and
+    writes to an audit trail — safe to re-run on demand.
     """
     from yeti.sleep.dedupe import run_dedupe
+    from yeti.sleep.reconcile import run_reconcile
 
     try:
         result = run_dedupe()
         logger.info("Sleep dedupe done: %s", result)
     except Exception:
         logger.exception("Sleep dedupe failed")
+
+    try:
+        result = _run_async(run_reconcile())
+        logger.info("Sleep reconcile done: %s", result)
+    except Exception:
+        logger.exception("Sleep reconcile failed")
 
 
 @celery_app.task
