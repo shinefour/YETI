@@ -312,9 +312,21 @@ async def _apply_triage_result(
                 clarification,
             )
 
-    # 5. Disambiguate people mentioned
+    # 5. Disambiguate people mentioned (after canonical-name folding
+    #    so "Lúcia" / "Lucia Romão" / "Lucia" don't surface as three
+    #    different unknowns).
     people_mentioned = result.get("people_mentioned", [])
     if people_mentioned:
+        try:
+            from yeti.agents.name_resolver import canonicalise_list
+
+            people_mentioned = await canonicalise_list(
+                people_mentioned, client=_memory
+            )
+        except Exception:
+            logger.exception(
+                "Name resolver failed; using raw names"
+            )
         disamb_count = await _resolve_people(
             people_mentioned, wing, note
         )
@@ -536,13 +548,16 @@ async def _person_known_in_kg(name: str) -> bool:
     if not name or not name.strip():
         return False
     try:
+        from yeti.agents.name_resolver import fold
+
         result = await _memory.kg_query(entity=name, source="triage")
         facts = result.get("facts") or []
         if not isinstance(facts, list):
             return False
+        target = fold(name)
         return any(
-            (f.get("subject") or "").lower() == name.lower()
-            or (f.get("object") or "").lower() == name.lower()
+            fold(f.get("subject") or "") == target
+            or fold(f.get("object") or "") == target
             for f in facts
         )
     except Exception:
