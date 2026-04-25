@@ -177,17 +177,40 @@ async def _apply_triage_result(
         logger.exception("Failed to store drawer")
 
     # 2. Add KG facts
+    people_set = {
+        n.strip()
+        for n in result.get("people_mentioned", [])
+        if n and n.strip()
+    }
+    refresh_subjects: set[str] = set()
     for fact in result.get("facts", []):
         try:
+            subject = fact["subject"]
             await _memory.kg_add(
-                subject=fact["subject"],
+                subject=subject,
                 predicate=fact["predicate"],
                 obj=fact["object"],
                 valid_from=fact.get("valid_from"),
             )
             counts["facts"] += 1
+            # If this fact's subject is a person mentioned in the
+            # same note, refresh their canonical contact drawer
+            # afterwards so future drawer searches see the new info.
+            if subject and subject in people_set:
+                refresh_subjects.add(subject)
         except Exception:
             logger.exception("Failed to add fact: %s", fact)
+
+    if refresh_subjects:
+        from yeti.identity import ensure_contact_drawer
+
+        for subj in refresh_subjects:
+            try:
+                await ensure_contact_drawer(subj, client=_memory)
+            except Exception:
+                logger.exception(
+                    "Contact drawer refresh failed for %s", subj
+                )
 
     # 3. Create inbox items for proposed action items
     # (user reviews and approves before they become real tasks)

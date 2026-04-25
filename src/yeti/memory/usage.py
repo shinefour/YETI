@@ -140,6 +140,20 @@ class UsageStore:
                 ).fetchone()
         return row[0] if row else 0
 
+    def last_retrieved_for_entity(self, entity: str) -> str | None:
+        """Most recent ts an entity was queried, ISO8601 string."""
+        if not entity:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT MAX(ts) FROM retrieval_log
+                WHERE fact_subject = ?
+                """,
+                (entity,),
+            ).fetchone()
+        return row[0] if row and row[0] else None
+
     def entity_hit_count(
         self,
         entity: str,
