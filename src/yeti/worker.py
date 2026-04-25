@@ -283,7 +283,7 @@ def _sync_gmail_sync():
                 forced_wing=forced_wing,
             )
         )
-        triage_note.delay(note.id)
+        classify_note.delay(note.id)
         ingested += 1
 
     # Advance watermark to the newest message we've seen
@@ -433,7 +433,7 @@ def _sync_outlook_one(email: str, wing: str):
                 forced_wing=wing,
             )
         )
-        triage_note.delay(note.id)
+        classify_note.delay(note.id)
         ingested += 1
 
     if newest_ts > since:
@@ -446,6 +446,81 @@ def _sync_outlook_one(email: str, wing: str):
         skipped,
         deduped,
     )
+
+
+@celery_app.task
+def classify_note(note_id: str):
+    """Run pre-triage classifier; dispatch to triage based on level."""
+    _run_async(_classify_note_async(note_id))
+
+
+async def _classify_note_async(note_id: str):
+    from yeti.agents.prefilter import classify_note_content
+    from yeti.models.notes import NoteStore
+
+    store = NoteStore()
+    note = store.get(note_id)
+    if not note:
+        logger.error("Classify: note %s not found", note_id)
+        return
+
+    try:
+        verdict = await classify_note_content(note)
+    except Exception:
+        logger.exception(
+            "Pre-classifier crashed for %s; falling back to full",
+            note_id,
+        )
+        verdict = {"level": "full", "reason": "exception-fail-open"}
+
+    level = verdict["level"]
+    reason = verdict["reason"]
+    store.set_triage_level(note_id, level, reason)
+    logger.info(
+        "Classified note %s as %s (%s)", note_id, level, reason
+    )
+
+    if level == "discard":
+        # No drawer, no triage. Mailbox keeps the source-of-truth.
+        store.mark_processed(
+            note_id, summary=f"discard: {reason}"
+        )
+        return
+
+    if level == "informational":
+        await _store_informational_drawer(note)
+        store.mark_processed(
+            note_id, summary=f"informational: {reason}"
+        )
+        return
+
+    # level == "full" → real triage pipeline
+    triage_note.delay(note_id)
+
+
+async def _store_informational_drawer(note):
+    """Store informational notes as a drawer; no extraction."""
+    from yeti.memory.client import MemPalaceClient
+
+    wing = note.forced_wing or "general"
+    drawer_content = (
+        f"# {note.title or 'Informational note'}\n"
+        f"Source: {note.source.value}\n"
+        f"Captured: {note.created_at}\n\n"
+        f"{note.content}"
+    )
+    try:
+        await MemPalaceClient().store(
+            content=drawer_content,
+            wing=wing,
+            room="context-only",
+            source=f"note:{note.id}:informational",
+        )
+    except Exception:
+        logger.exception(
+            "Failed to store informational drawer for %s",
+            note.id,
+        )
 
 
 @celery_app.task

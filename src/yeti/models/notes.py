@@ -33,6 +33,15 @@ class NoteStatus(enum.StrEnum):
     FAILED = "failed"
 
 
+class TriageLevel(enum.StrEnum):
+    """Pre-classifier verdict on how much triage a note deserves."""
+
+    UNCLASSIFIED = ""
+    DISCARD = "discard"
+    INFORMATIONAL = "informational"
+    FULL = "full"
+
+
 class Note(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     content: str
@@ -43,6 +52,9 @@ class Note(BaseModel):
     # wing the LLM infers. Used by wing-scoped ingestion sources (e.g.
     # specific mailboxes) where cross-wing routing is a correctness bug.
     forced_wing: str = ""
+    # Pre-classifier output: how much processing to apply.
+    triage_level: str = ""
+    triage_reason: str = ""
     status: NoteStatus = NoteStatus.PENDING
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat()
@@ -75,6 +87,8 @@ class NoteStore:
                     title TEXT DEFAULT '',
                     context TEXT DEFAULT '',
                     forced_wing TEXT DEFAULT '',
+                    triage_level TEXT DEFAULT '',
+                    triage_reason TEXT DEFAULT '',
                     status TEXT DEFAULT 'pending',
                     created_at TEXT NOT NULL,
                     processed_at TEXT,
@@ -90,18 +104,32 @@ class NoteStore:
                 CREATE INDEX IF NOT EXISTS idx_notes_created
                 ON notes(created_at)
             """)
-            # Migrate existing installs: add forced_wing column if missing.
             cols = {
                 r[1]
                 for r in conn.execute(
                     "PRAGMA table_info(notes)"
                 ).fetchall()
             }
-            if "forced_wing" not in cols:
-                conn.execute(
+            # Add columns to existing installs in order.
+            for col_name, ddl in (
+                (
+                    "forced_wing",
                     "ALTER TABLE notes "
-                    "ADD COLUMN forced_wing TEXT DEFAULT ''"
-                )
+                    "ADD COLUMN forced_wing TEXT DEFAULT ''",
+                ),
+                (
+                    "triage_level",
+                    "ALTER TABLE notes "
+                    "ADD COLUMN triage_level TEXT DEFAULT ''",
+                ),
+                (
+                    "triage_reason",
+                    "ALTER TABLE notes "
+                    "ADD COLUMN triage_reason TEXT DEFAULT ''",
+                ),
+            ):
+                if col_name not in cols:
+                    conn.execute(ddl)
 
     def create(self, note: Note) -> Note:
         with self._conn() as conn:
@@ -109,9 +137,10 @@ class NoteStore:
                 """
                 INSERT INTO notes
                     (id, content, source, title, context,
-                     forced_wing, status, created_at,
-                     processed_at, triage_summary, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     forced_wing, triage_level, triage_reason,
+                     status, created_at, processed_at,
+                     triage_summary, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     note.id,
@@ -120,6 +149,8 @@ class NoteStore:
                     note.title,
                     note.context,
                     note.forced_wing,
+                    note.triage_level,
+                    note.triage_reason,
                     note.status.value,
                     note.created_at,
                     note.processed_at,
@@ -185,6 +216,19 @@ class NoteStore:
                 WHERE id = ?
                 """,
                 (now, summary, note_id),
+            )
+
+    def set_triage_level(
+        self, note_id: str, level: str, reason: str
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE notes
+                SET triage_level = ?, triage_reason = ?
+                WHERE id = ?
+                """,
+                (level, reason, note_id),
             )
 
     def mark_failed(self, note_id: str, error: str) -> None:

@@ -26,11 +26,11 @@ async def create_note(body: dict):
     )
     created = store.create(note)
 
-    # Queue triage (Celery worker picks it up)
+    # Queue pre-classifier; it dispatches to triage when level=full.
     try:
-        from yeti.worker import triage_note
+        from yeti.worker import classify_note
 
-        triage_note.delay(created.id)
+        classify_note.delay(created.id)
     except Exception:
         # If Celery isn't available, just leave as pending
         pass
