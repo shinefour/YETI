@@ -342,6 +342,61 @@ async def item_audit(item_id: str):
     return [e.model_dump() for e in entries]
 
 
+@router.get("/patterns")
+async def list_patterns():
+    """List learned resolution patterns + their auto-apply status."""
+    from yeti.models.resolution_patterns import (
+        ResolutionPatternStore,
+    )
+
+    store_p = ResolutionPatternStore()
+    with store_p._conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT pattern_key, disposition, count,
+                   last_seen, auto_apply
+            FROM resolution_patterns
+            ORDER BY count DESC, last_seen DESC
+            LIMIT 200
+            """
+        ).fetchall()
+    return [
+        {
+            "pattern_key": r["pattern_key"],
+            "disposition": r["disposition"],
+            "count": r["count"],
+            "last_seen": r["last_seen"],
+            "auto_apply": bool(r["auto_apply"]),
+        }
+        for r in rows
+    ]
+
+
+@router.post("/patterns/auto-apply")
+async def toggle_auto_apply(body: dict):
+    """Flip the auto_apply flag on a learned pattern.
+
+    Body: {"pattern_key": "<type>::<title>", "auto_apply": bool}
+    """
+    from yeti.models.resolution_patterns import (
+        ResolutionPatternStore,
+    )
+
+    pattern_key = body.get("pattern_key", "")
+    if not pattern_key:
+        return JSONResponse(
+            {"error": "pattern_key required"}, status_code=400
+        )
+    enabled = bool(body.get("auto_apply", False))
+    if not ResolutionPatternStore().set_auto_apply(
+        pattern_key, enabled
+    ):
+        return JSONResponse(
+            {"error": "Pattern not found"}, status_code=404
+        )
+    return {"pattern_key": pattern_key, "auto_apply": enabled}
+
+
 @router.get("/audit/recent")
 async def recent_audit(limit: int = 100):
     entries = store.audit_log(limit=limit)

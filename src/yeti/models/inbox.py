@@ -58,6 +58,12 @@ class InboxItem(BaseModel):
         default_factory=list
     )
 
+    # Pattern-based prefill: when prior resolutions on the same
+    # (type, title) consistently used a disposition, we hint at it
+    # here so the UI can pre-select. Always advisory; never autoplay.
+    suggested_disposition: str = ""
+    suggestion_count: int = 0
+
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
@@ -115,6 +121,8 @@ class InboxStore:
                 ("source_note_id", "TEXT DEFAULT ''"),
                 ("answer_schema", "TEXT DEFAULT '[]'"),
                 ("quick_actions", "TEXT DEFAULT '[]'"),
+                ("suggested_disposition", "TEXT DEFAULT ''"),
+                ("suggestion_count", "INTEGER DEFAULT 0"),
             ]:
                 try:
                     conn.execute(
@@ -152,9 +160,10 @@ class InboxStore:
                     (id, type, title, summary, payload, source,
                      source_note_id, confidence, status,
                      answer_schema, quick_actions,
+                     suggested_disposition, suggestion_count,
                      created_at, resolved_at,
                      resolution, resolution_note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -168,6 +177,8 @@ class InboxStore:
                     item.status.value,
                     json.dumps(item.answer_schema),
                     json.dumps(item.quick_actions),
+                    item.suggested_disposition,
+                    item.suggestion_count,
                     item.created_at,
                     item.resolved_at,
                     item.resolution,
@@ -283,6 +294,7 @@ class InboxStore:
         note: str = "",
     ) -> InboxItem | None:
         now = datetime.now(UTC).isoformat()
+        item = self.get(item_id)
         with self._conn() as conn:
             conn.execute(
                 """
@@ -300,6 +312,23 @@ class InboxStore:
             "resolved",
             {"resolution": resolution, "note": note},
         )
+        # Record the pattern so future identical items can be prefilled.
+        if item and resolution:
+            try:
+                from yeti.models.resolution_patterns import (
+                    ResolutionPatternStore,
+                    make_pattern_key,
+                )
+
+                key = make_pattern_key(
+                    item.type.value, item.title
+                )
+                ResolutionPatternStore().record_resolution(
+                    key, resolution
+                )
+            except Exception:
+                # Pattern learning is best-effort; never fail a resolve.
+                pass
         return self.get(item_id)
 
     def _audit(

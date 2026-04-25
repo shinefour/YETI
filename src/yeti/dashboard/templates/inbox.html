@@ -32,6 +32,23 @@ window.clearAndRefresh = function() {
     setTimeout(() => { window._yetiClearing = false; }, 1000);
 };
 
+window.toggleAutoApply = async function(patternKey, enabled) {
+    const r = await fetch('/api/inbox/patterns/auto-apply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({
+            pattern_key: patternKey,
+            auto_apply: enabled
+        })
+    });
+    if (!r.ok) {
+        console.error('Failed to toggle pattern:', r.status);
+        return;
+    }
+    window.clearAndRefresh();
+};
+
 window.resolveInboxItem = async function(itemId, resolution) {
     try {
         const r = await fetch('/api/inbox/' + itemId + '/resolve', {

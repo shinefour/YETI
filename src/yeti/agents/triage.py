@@ -136,6 +136,70 @@ async def triage_note_content(note: Note) -> str:
     return await _apply_triage_result(note, parsed)
 
 
+def _prefill_with_pattern(
+    item: InboxItem,
+) -> tuple[InboxItem, bool]:
+    """Look up resolution-pattern suggestion for this item.
+
+    Mutates the item in place to attach `suggested_disposition` /
+    `suggestion_count` for UI prefill. Returns (item, auto_apply) —
+    when auto_apply is True the caller should create then immediately
+    resolve the item with the suggested disposition.
+    """
+    try:
+        from yeti.models.resolution_patterns import (
+            ResolutionPatternStore,
+            make_pattern_key,
+        )
+
+        key = make_pattern_key(item.type.value, item.title)
+        suggestion = ResolutionPatternStore().suggestion_for(
+            key
+        )
+    except Exception:
+        return item, False
+    if not suggestion:
+        return item, False
+    item.suggested_disposition = suggestion["disposition"]
+    item.suggestion_count = int(suggestion["count"])
+    return item, bool(suggestion.get("auto_apply"))
+
+
+def _create_with_prefill(item: InboxItem) -> InboxItem | None:
+    """Create the item; if pattern says auto-apply, resolve at once.
+
+    Returns the created InboxItem (regardless of auto-apply outcome)
+    or None if creation failed.
+    """
+    item, auto_apply = _prefill_with_pattern(item)
+    try:
+        created = _inbox.create(item)
+    except Exception:
+        logger.exception("Failed to create inbox item")
+        return None
+    if auto_apply:
+        try:
+            _inbox.resolve(
+                created.id,
+                item.suggested_disposition,
+                note=(
+                    "auto-applied per resolution pattern "
+                    f"(count={item.suggestion_count})"
+                ),
+            )
+            logger.info(
+                "Auto-applied %s '%s' as %s",
+                item.type.value,
+                item.title,
+                item.suggested_disposition,
+            )
+        except Exception:
+            logger.exception(
+                "Auto-apply resolve failed for %s", created.id
+            )
+    return created
+
+
 async def _apply_triage_result(
     note: Note, result: dict
 ) -> str:
@@ -224,55 +288,46 @@ async def _apply_triage_result(
                 action_title,
             )
             continue
-        try:
-            _inbox.create(
-                InboxItem(
-                    type=InboxType.PROPOSED_ACTION,
-                    title=action["title"],
-                    summary=action.get("context", "")
-                    or "Proposed task from triage",
-                    answer_schema=[
-                        {
-                            "key": "title",
-                            "label": "Task title",
-                            "type": "text",
-                            "value": action["title"],
-                        },
-                        {
-                            "key": "assignee",
-                            "label": "Assignee",
-                            "type": "text",
-                            "value": action.get(
-                                "assignee", ""
-                            )
-                            or "Daniel",
-                        },
-                        {
-                            "key": "due_date",
-                            "label": "Due date (YYYY-MM-DD)",
-                            "type": "text",
-                            "value": action.get("due_date")
-                            or "",
-                        },
-                        {
-                            "key": "project",
-                            "label": "Project",
-                            "type": "text",
-                            "value": "",
-                        },
-                    ],
-                    quick_actions=["discard"],
-                    source_note_id=note.id,
-                    payload={"context": action.get("context", "")},
-                    source=f"triage:{note.id}",
-                    confidence=0.7,
-                )
-            )
+        proposed = InboxItem(
+            type=InboxType.PROPOSED_ACTION,
+            title=action["title"],
+            summary=action.get("context", "")
+            or "Proposed task from triage",
+            answer_schema=[
+                {
+                    "key": "title",
+                    "label": "Task title",
+                    "type": "text",
+                    "value": action["title"],
+                },
+                {
+                    "key": "assignee",
+                    "label": "Assignee",
+                    "type": "text",
+                    "value": action.get("assignee", "")
+                    or "Daniel",
+                },
+                {
+                    "key": "due_date",
+                    "label": "Due date (YYYY-MM-DD)",
+                    "type": "text",
+                    "value": action.get("due_date") or "",
+                },
+                {
+                    "key": "project",
+                    "label": "Project",
+                    "type": "text",
+                    "value": "",
+                },
+            ],
+            quick_actions=["discard"],
+            source_note_id=note.id,
+            payload={"context": action.get("context", "")},
+            source=f"triage:{note.id}",
+            confidence=0.7,
+        )
+        if _create_with_prefill(proposed) is not None:
             counts["inbox"] += 1
-        except Exception:
-            logger.exception(
-                "Failed to create proposed action: %s", action
-            )
 
     # 4. Create inbox items for clarifications (schema-driven)
     for clarification in result.get("clarifications", []):
@@ -284,28 +339,22 @@ async def _apply_triage_result(
                 "Skipping duplicate DECISION '%s'", clar_title
             )
             continue
+        decision = InboxItem(
+            type=InboxType.DECISION,
+            title=clarification.get(
+                "question", "Clarification needed"
+            ),
+            summary=clarification.get("context", ""),
+            answer_schema=clarification.get("schema", []),
+            quick_actions=["discard", "convert_to_task"],
+            payload={"note_id": note.id},
+            source_note_id=note.id,
+            source=f"triage:{note.id}",
+            confidence=0.5,
+        )
         try:
-            _inbox.create(
-                InboxItem(
-                    type=InboxType.DECISION,
-                    title=clarification.get(
-                        "question", "Clarification needed"
-                    ),
-                    summary=clarification.get("context", ""),
-                    answer_schema=clarification.get(
-                        "schema", []
-                    ),
-                    quick_actions=[
-                        "discard",
-                        "convert_to_task",
-                    ],
-                    payload={"note_id": note.id},
-                    source_note_id=note.id,
-                    source=f"triage:{note.id}",
-                    confidence=0.5,
-                )
-            )
-            counts["inbox"] += 1
+            if _create_with_prefill(decision) is not None:
+                counts["inbox"] += 1
         except Exception:
             logger.exception(
                 "Failed to create clarification: %s",

@@ -652,12 +652,14 @@ async def inbox_active_partial():
 
     body_html, actions_html = _render_inbox_body(active)
     source_html = _render_source_note(active)
+    suggestion_html = _render_suggestion(active)
 
     return f"""
     <div class="card">
       <h2>{active.type.value.replace('_', ' ').title()}</h2>
       <h3 style="margin:0.5rem 0">{active.title}</h3>
       <p class="muted">{active.summary}</p>
+      {suggestion_html}
       {body_html}
       <div style="margin-top:1.5rem;display:flex;gap:0.5rem;
                   flex-wrap:wrap">
@@ -666,6 +668,41 @@ async def inbox_active_partial():
     </div>
     {source_html}
     {upcoming_html}
+    """
+
+
+def _render_suggestion(item) -> str:
+    """Render the suggestion hint + auto-apply toggle when applicable."""
+    sd = getattr(item, "suggested_disposition", "") or ""
+    sc = getattr(item, "suggestion_count", 0) or 0
+    if not sd or sc < 2:
+        return ""
+    import html as _html
+
+    pretty = sd.replace("_", " ")
+    pattern_key_raw = f"{item.type.value}::{item.title}"
+    pattern_key_js = (
+        '"'
+        + pattern_key_raw.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        + '"'
+    )
+    return f"""
+    <div class="card" style="background:var(--surface);
+                            border-left:2px solid var(--accent);
+                            padding:0.5rem 0.75rem;
+                            margin:0.5rem 0;font-size:0.85rem">
+      <strong>Suggested:</strong>
+      <span style="text-transform:capitalize">{_html.escape(pretty)}</span>
+      <span class="muted">(based on {sc} prior similar
+       resolution{'s' if sc != 1 else ''})</span>
+      <button
+        type="button"
+        style="margin-left:0.75rem;font-size:0.75rem"
+        onclick="window.toggleAutoApply(
+          {pattern_key_js}, true).catch(console.error)"
+      >Auto-apply next time</button>
+    </div>
     """
 
 
