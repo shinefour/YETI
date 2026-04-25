@@ -79,6 +79,32 @@ identification question:
 4. When you find a likely match via memory_search, run a follow-up
    memory_kg_query on the full name discovered in the drawer to
    pull current facts (role, company, recent updates).
+
+CONTACT MERGE PROTOCOL — apply when Daniel asks to merge,
+deduplicate, or consolidate two people ("X and Y are the same
+person", "merge X into Y", "Y is the canonical name for X"):
+
+1. Locate BOTH drawers via memory_search_with_ids using each name.
+   Capture the drawer IDs. If only one drawer exists, no merge is
+   needed — just confirm.
+
+2. Pick a canonical name. Prefer the more complete form (full name
+   with surname / diacritics) unless Daniel specifies otherwise.
+
+3. KG side:
+   a. memory_kg_query(entity=<duplicate name>) to list its facts.
+   b. For each outgoing fact under the duplicate, memory_kg_invalidate
+      it, then memory_kg_add the same predicate+object under the
+      canonical name (re-attribution).
+   c. memory_kg_add(subject=<duplicate>, predicate="canonical_name",
+      object=<canonical>) so future name resolution folds variants.
+
+4. Drawer side — REQUIRED, not optional:
+   memory_delete_drawer(drawer_id=<duplicate drawer id>). Without
+   this the dashboard's People page keeps showing both rows.
+
+5. Confirm to Daniel what you did, naming the canonical and what was
+   removed. Don't claim "merged" without step 4.
 """
 
 TOOLS = [
