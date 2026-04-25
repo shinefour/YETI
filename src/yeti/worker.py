@@ -465,6 +465,7 @@ def sleep_deterministic():
     writes to an audit trail — safe to re-run on demand.
     """
     from yeti.sleep.dedupe import run_dedupe
+    from yeti.sleep.gaps import run_gap_fill
     from yeti.sleep.reconcile import run_reconcile
 
     try:
@@ -478,6 +479,12 @@ def sleep_deterministic():
         logger.info("Sleep reconcile done: %s", result)
     except Exception:
         logger.exception("Sleep reconcile failed")
+
+    try:
+        result = run_gap_fill()
+        logger.info("Sleep gap-fill done: %s", result)
+    except Exception:
+        logger.exception("Sleep gap-fill failed")
 
 
 @celery_app.task
