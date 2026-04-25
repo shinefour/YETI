@@ -39,6 +39,10 @@ celery_app.conf.beat_schedule = {
         "task": "yeti.worker.sleep_deterministic",
         "schedule": crontab(hour=4, minute=0),
     },
+    "daily-summary": {
+        "task": "yeti.worker.daily_summary",
+        "schedule": crontab(hour=23, minute=30),
+    },
 }
 
 
@@ -474,6 +478,18 @@ def sleep_deterministic():
         logger.info("Sleep reconcile done: %s", result)
     except Exception:
         logger.exception("Sleep reconcile failed")
+
+
+@celery_app.task
+def daily_summary():
+    """End-of-day structured summary as a drawer in wing=meta."""
+    from yeti.sleep.summary import run_daily_summary
+
+    try:
+        result = _run_async(run_daily_summary())
+        logger.info("Daily summary stored: %s", result)
+    except Exception:
+        logger.exception("Daily summary failed")
 
 
 @celery_app.task
