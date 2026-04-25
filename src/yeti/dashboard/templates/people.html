@@ -55,6 +55,43 @@
 </div>
 
 <script>
+window.ignoreSender = async function(email) {
+    if (!email) return;
+    const ok = window.confirm(
+        'Mark "' + email + '" as automated/system? Future emails ' +
+        'from this sender will be filtered and it will not appear ' +
+        'in Needs Profile again.'
+    );
+    if (!ok) return;
+    const r = await fetch('/dashboard/api/email-blacklist', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({
+            pattern: email,
+            reason: 'automated/system (marked from People page)'
+        })
+    });
+    if (!r.ok) {
+        let detail = r.status;
+        try {
+            const j = await r.json();
+            detail = j.error || detail;
+        } catch (e) { /* ignore */ }
+        alert('Failed: ' + detail);
+        return;
+    }
+    const gaps = document.getElementById('people-gaps');
+    if (window.htmx && gaps) {
+        htmx.trigger(gaps, 'load');
+    } else if (gaps) {
+        const resp = await fetch(
+            '/dashboard/partials/people-needs-profile'
+        );
+        gaps.innerHTML = await resp.text();
+    }
+};
+
 window.askYetiAbout = function(name, email, count) {
     const input = document.querySelector(
         '.global-chat-input input[name="message"]'

@@ -1286,6 +1286,9 @@ async def people_needs_profile_partial():
             f"onclick=\"askYetiAbout("
             f"'{_escape(name)}','{_escape(email)}',{count})\">"
             f"Add profile via chat</button>"
+            f'<button class="btn btn-ghost btn-sm" '
+            f"onclick=\"ignoreSender('{_escape(email)}')\">"
+            f"Ignore (system)</button>"
             f"</span>"
             f"</div>"
         )
@@ -1501,6 +1504,28 @@ async def people_contacts_partial(q: str = ""):
             )
 
     return "\n".join(rows)
+
+
+@router.post("/api/email-blacklist")
+async def add_email_blacklist(payload: dict):
+    """Add an email pattern to the ingestion / gap-detector blacklist."""
+    from fastapi.responses import JSONResponse
+
+    from yeti.models.email_blacklist import EmailBlacklistStore
+
+    pattern = (payload or {}).get("pattern", "").strip()
+    if not pattern:
+        return JSONResponse(
+            {"error": "pattern required"}, status_code=400
+        )
+    reason = (payload or {}).get("reason", "").strip()
+    try:
+        entry = EmailBlacklistStore().add(pattern, reason)
+    except Exception as e:
+        return JSONResponse(
+            {"error": str(e)}, status_code=500
+        )
+    return {"ok": True, "pattern": entry.pattern}
 
 
 @router.post("/api/contacts/{drawer_id}/delete")

@@ -157,10 +157,15 @@ def find_gap_senders(
     threshold: int = 3, days: int = 14
 ) -> list[dict]:
     """High-mention senders not yet represented in memory."""
+    from yeti.models.email_blacklist import EmailBlacklistStore
+
     senders = _collect_recent_senders(days=days)
+    blacklist = EmailBlacklistStore()
     gaps = []
     for email, rec in senders.items():
         if rec["count"] < threshold:
+            continue
+        if blacklist.matches(email):
             continue
         if _is_known(email, rec["name"]):
             continue
