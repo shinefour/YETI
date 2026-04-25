@@ -1,0 +1,12 @@
+- [No Co-Authored-By](feedback_no_coauthor.md) — Never add Co-Authored-By lines to commit messages
+- [YETI overview](project_yeti_overview.md) — Project state, tech stack, key decisions, repo location
+- [Daniel's profile](user_daniel.md) — Role, tools, design preferences
+- [Batch deploys](feedback_deploy_later.md) — Continue implementing, don't deploy after every commit
+- [Validate first](feedback_validate_first.md) — Always discuss approach before writing code, across all sessions
+- [Image fallback](project_image_fallback.md) — When OCR fails, save image + create action item for manual entry via dashboard
+- [Workflow preferences](user_workflow.md) — Claude sessions for deep work, Telegram for quick tasks, dashboard for overview
+- [Inbox concept](project_inbox_concept.md) — Inbox is interpretation/clarification queue, not action queue. Schema-driven forms + override actions. Claude updates understanding, never executes actions without button click.
+- [Wing isolation](feedback_wing_isolation.md) — MemPalace wings for globalstudio / above / conetic must stay separate. Ingestion sources pin to a wing; triage can't override.
+- [Be opinionated](feedback_be_opinionated.md) — Critique Daniel's design proposals from consumer's perspective before drafting plans.
+- [Memory philosophy](project_memory_philosophy.md) — MemPalace = curated memory like a person, not a dump. Sleep-style consolidation is design intent.
+- [Maturation pipeline](project_maturation_pipeline.md) — Classify → triage → sleep → prefill flow. Wing/room conventions, source tags, API additions, deferred items, ops gotchas.

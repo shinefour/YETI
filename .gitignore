@@ -34,3 +34,8 @@ docker-compose.override.yml
 data/
 *.db
 *.sqlite3
+
+# Claude Code: keep .claude/memory/ committed for portability,
+# but per-machine local overrides stay out of git.
+.claude/settings.local.json
+.claude/plans/
