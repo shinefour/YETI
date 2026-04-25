@@ -6,6 +6,16 @@ cd "$(dirname "$0")/.."
 # Ensure Ruby + Kamal are on PATH (Homebrew-installed Ruby gems bin)
 export PATH="/usr/local/opt/ruby/bin:/usr/local/lib/ruby/gems/4.0.0/bin:$PATH"
 
+# macOS defaults to a low fd cap (256). pytest + sqlite + asyncio
+# easily exhaust it once stale tmpdirs accumulate.
+ulimit -n 4096
+
+# Purge stale pytest tmp dirs from past runs so cleanup doesn't blow up.
+PYTEST_TMP="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)/pytest-of-$(id -un)"
+if [ -d "$PYTEST_TMP" ]; then
+    rm -rf "$PYTEST_TMP" 2>/dev/null || true
+fi
+
 if ! command -v kamal >/dev/null 2>&1; then
     echo "ERROR: kamal not found. Make sure Ruby + kamal gem are installed."
     echo "  brew install ruby"
