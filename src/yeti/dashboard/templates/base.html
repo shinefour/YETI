@@ -76,6 +76,27 @@
             color: var(--text);
             border-left: 2px solid var(--accent);
         }
+        nav a {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+        .nav-count {
+            font-size: 0.7rem;
+            font-weight: 500;
+            min-width: 1.4rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 10px;
+            text-align: center;
+            background: var(--surface-strong);
+            color: var(--text-dim);
+        }
+        .nav-count:empty { display: none; }
+        .nav-count.has-items {
+            background: var(--accent-bg);
+            color: var(--accent);
+        }
         nav .sidebar-section {
             border-top: 1px solid var(--border);
             padding-top: 1rem;
@@ -542,15 +563,32 @@
         <nav>
             <div class="logo">YETI</div>
             <div class="nav-links">
-                <a href="/dashboard" {% if active == "home" %}class="active"{% endif %}>Home</a>
-                <a href="/dashboard/inbox" {% if active == "inbox" %}class="active"{% endif %}>Inbox</a>
-                <a href="/dashboard/notes" {% if active == "notes" %}class="active"{% endif %}>Notes</a>
-                <a href="/dashboard/tasks" {% if active == "tasks" %}class="active"{% endif %}>Tasks</a>
-                <a href="/dashboard/knowledge" {% if active == "knowledge" %}class="active"{% endif %}>Knowledge</a>
-                <a href="/dashboard/people" {% if active == "people" %}class="active"{% endif %}>People</a>
-                <a href="/dashboard/activity" {% if active == "activity" %}class="active"{% endif %}>Activity</a>
-                <a href="/dashboard/usage" {% if active == "usage" %}class="active"{% endif %}>Usage</a>
+                <a href="/dashboard" {% if active == "home" %}class="active"{% endif %}>
+                    <span>Home</span>
+                </a>
+                <a href="/dashboard/inbox" {% if active == "inbox" %}class="active"{% endif %}>
+                    <span>Inbox</span>
+                    <span class="nav-count" id="nav-count-inbox"></span>
+                </a>
+                <a href="/dashboard/notes" {% if active == "notes" %}class="active"{% endif %}>
+                    <span>Notes</span>
+                </a>
+                <a href="/dashboard/tasks" {% if active == "tasks" %}class="active"{% endif %}>
+                    <span>Tasks</span>
+                    <span class="nav-count" id="nav-count-tasks"></span>
+                </a>
+                <a href="/dashboard/people" {% if active == "people" %}class="active"{% endif %}>
+                    <span>People</span>
+                    <span class="nav-count" id="nav-count-people"></span>
+                </a>
+                <a href="/dashboard/usage" {% if active == "usage" %}class="active"{% endif %}>
+                    <span>Usage</span>
+                </a>
             </div>
+            <div hx-get="/dashboard/partials/nav-counts"
+                 hx-trigger="load, every 30s, refresh from:body"
+                 hx-swap="innerHTML"
+                 style="display:none"></div>
             <div class="sidebar-section"
                  hx-get="/dashboard/partials/status-sidebar"
                  hx-trigger="load, every 30s" hx-swap="innerHTML">

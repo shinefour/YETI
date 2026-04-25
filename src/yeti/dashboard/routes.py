@@ -48,51 +48,10 @@ async def notes_page(request: Request):
     )
 
 
-@router.get("/knowledge", response_class=HTMLResponse)
-async def knowledge_page(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "placeholder.html",
-        {
-            "active": "knowledge",
-            "page_title": "Knowledge Base",
-            "page_description": (
-                "Browse project documentation, meeting notes, "
-                "and specs. Coming once MemPalace is connected."
-            ),
-        },
-    )
-
-
 @router.get("/people", response_class=HTMLResponse)
 async def people_page(request: Request):
     return templates.TemplateResponse(
-        request,
-        "placeholder.html",
-        {
-            "active": "people",
-            "page_title": "Person Network",
-            "page_description": (
-                "Directory of contacts with interaction history "
-                "and project links. Coming once memory is seeded."
-            ),
-        },
-    )
-
-
-@router.get("/activity", response_class=HTMLResponse)
-async def activity_page(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "placeholder.html",
-        {
-            "active": "activity",
-            "page_title": "Activity Feed",
-            "page_description": (
-                "Recent events across integrations and "
-                "background agent actions. Coming soon."
-            ),
-        },
+        request, "people.html", {"active": "people"}
     )
 
 
@@ -386,6 +345,55 @@ async def usage_summary_partial():
     <h3 style="margin-top: 1rem">Top models</h3>
     {by_model_rows or '<div class="muted" style="font-size:0.75rem">No usage yet</div>'}
     """
+
+
+@router.get(
+    "/partials/nav-counts", response_class=HTMLResponse
+)
+async def nav_counts_partial():
+    """OOB-swap counts into the sidebar nav badges.
+
+    Counts only items that need user action:
+    - inbox: pending review
+    - tasks: ACTIVE + BLOCKED (open, not done)
+    - people: high-mention senders without a contact drawer
+    """
+    inbox_count = 0
+    try:
+        inbox_count = InboxStore().count_pending()
+    except Exception:
+        pass
+
+    tasks_count = 0
+    try:
+        store = TaskStore()
+        tasks_count = len(
+            store.list(status=TaskStatus.ACTIVE)
+        ) + len(store.list(status=TaskStatus.BLOCKED))
+    except Exception:
+        pass
+
+    people_count = 0
+    try:
+        from yeti.sleep.gaps import find_gap_senders
+
+        people_count = len(find_gap_senders())
+    except Exception:
+        pass
+
+    def _badge(slot: str, count: int) -> str:
+        cls = "nav-count has-items" if count > 0 else "nav-count"
+        body = str(count) if count > 0 else ""
+        return (
+            f'<span id="nav-count-{slot}" class="{cls}" '
+            f'hx-swap-oob="outerHTML">{body}</span>'
+        )
+
+    return (
+        _badge("inbox", inbox_count)
+        + _badge("tasks", tasks_count)
+        + _badge("people", people_count)
+    )
 
 
 @router.post("/partials/note", response_class=HTMLResponse)
@@ -1144,3 +1152,217 @@ def _dot_for(state: str) -> str:
     else:
         css = "dot-red"
     return f'<span class="dot {css}"></span>'
+
+
+# --- People page partials ---
+
+
+def _escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+@router.get(
+    "/partials/people-needs-profile",
+    response_class=HTMLResponse,
+)
+async def people_needs_profile_partial():
+    """High-mention senders with no contact drawer."""
+    try:
+        from yeti.sleep.gaps import find_gap_senders
+
+        gaps = find_gap_senders()
+    except Exception:
+        return (
+            '<div class="muted">'
+            "Could not load (worker / db unavailable)."
+            "</div>"
+        )
+
+    if not gaps:
+        return (
+            '<div class="muted" style="font-size:0.85rem">'
+            "No unknown frequent contacts."
+            "</div>"
+        )
+
+    rows = []
+    for g in gaps:
+        name = g.get("name") or ""
+        email = g.get("email") or ""
+        count = int(g.get("count") or 0)
+        display = name or email
+        last = (g.get("last_seen") or "")[:10]
+        meta = (
+            f"{count} email{'s' if count != 1 else ''}"
+            + (f" · last {last}" if last else "")
+        )
+        rows.append(
+            f'<div class="status-row">'
+            f'<span style="flex:1;min-width:0">'
+            f'<strong>{_escape(display)}</strong>'
+            f'<div class="muted" '
+            f'style="font-size:0.75rem">'
+            f"{_escape(email)} · {meta}</div>"
+            f"</span>"
+            f'<span class="btn-row">'
+            f'<button class="btn btn-primary btn-sm" '
+            f"onclick=\"askYetiAbout("
+            f"'{_escape(name)}','{_escape(email)}',{count})\">"
+            f"Ask in chat</button>"
+            f'<a class="btn btn-ghost btn-sm" '
+            f'href="/dashboard/inbox">Inbox form</a>'
+            f"</span>"
+            f"</div>"
+        )
+    return "\n".join(rows)
+
+
+def _list_contact_drawers(
+    query: str = "", limit: int = 100
+) -> list[dict]:
+    """Return drawers in wing=people, room=contacts.
+
+    Direct ChromaDB read (same pattern as sleep/gaps.py). Filters
+    superseded ids, then optionally narrows by case-insensitive
+    substring on the document text.
+    """
+    try:
+        import chromadb
+
+        from yeti.memory.client import MemPalaceClient
+    except Exception:
+        return []
+    try:
+        client = MemPalaceClient()
+        col = chromadb.PersistentClient(
+            path=client.palace_path
+        ).get_collection("mempalace_drawers")
+        page = col.get(
+            where={
+                "$and": [
+                    {"wing": "people"},
+                    {"room": "contacts"},
+                ]
+            },
+            include=["documents", "metadatas"],
+        )
+    except Exception:
+        return []
+
+    ids = page.get("ids") or []
+    docs = page.get("documents") or []
+    metas = page.get("metadatas") or []
+
+    try:
+        from yeti.models.superseded import SupersededStore
+
+        blocked = SupersededStore().superseded_ids()
+    except Exception:
+        blocked = set()
+
+    q = (query or "").strip().lower()
+    items: list[dict] = []
+    for i, doc in enumerate(docs):
+        drawer_id = ids[i] if i < len(ids) else ""
+        if drawer_id in blocked:
+            continue
+        text = doc or ""
+        if q and q not in text.lower():
+            continue
+        meta = metas[i] if i < len(metas) else {}
+        # First non-empty line is usually "Name: ..."
+        first_line = ""
+        for line in text.splitlines():
+            line = line.strip()
+            if line:
+                first_line = line
+                break
+        name = first_line
+        if name.lower().startswith("name:"):
+            name = name.split(":", 1)[1].strip()
+        items.append(
+            {
+                "id": drawer_id,
+                "name": name or "(unnamed)",
+                "preview": text[:160],
+                "source": (meta or {}).get("source", ""),
+            }
+        )
+        if len(items) >= limit:
+            break
+    items.sort(key=lambda it: it["name"].lower())
+    return items
+
+
+@router.get(
+    "/partials/people-contacts", response_class=HTMLResponse
+)
+async def people_contacts_partial(q: str = ""):
+    items = _list_contact_drawers(query=q, limit=200)
+    if not items:
+        msg = (
+            "No matches."
+            if q
+            else "No contact drawers yet. Run "
+            "<code>yeti setup-self</code> to seed yours."
+        )
+        return f'<div class="muted">{msg}</div>'
+
+    rows = []
+    for it in items:
+        src_tag = ""
+        if it["source"]:
+            src_tag = (
+                f' <span class="badge badge-dim">'
+                f'{_escape(it["source"])}</span>'
+            )
+        rows.append(
+            f'<div class="status-row" '
+            f'style="cursor:pointer" '
+            f"onclick=\"openContact('{_escape(it['id'])}',"
+            f"'{_escape(it['name'])}')\">"
+            f'<span style="flex:1;min-width:0">'
+            f'<strong>{_escape(it["name"])}</strong>'
+            f"{src_tag}"
+            f'<div class="muted" '
+            f'style="font-size:0.75rem;'
+            f"overflow:hidden;text-overflow:ellipsis;"
+            f'white-space:nowrap">'
+            f'{_escape(it["preview"])}</div>'
+            f"</span>"
+            f"</div>"
+        )
+    return "\n".join(rows)
+
+
+@router.get(
+    "/partials/people-contact-body",
+    response_class=HTMLResponse,
+)
+async def people_contact_body_partial(id: str):
+    """Return the raw drawer body text for a contact."""
+    try:
+        import chromadb
+
+        from yeti.memory.client import MemPalaceClient
+    except Exception:
+        return "Unavailable."
+    try:
+        client = MemPalaceClient()
+        col = chromadb.PersistentClient(
+            path=client.palace_path
+        ).get_collection("mempalace_drawers")
+        page = col.get(ids=[id], include=["documents"])
+    except Exception:
+        return "Could not load drawer."
+    docs = page.get("documents") or []
+    if not docs:
+        return "Drawer not found."
+    return docs[0] or "(empty)"

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}People{% endblock %}
+{% block content %}
+<div class="page-content">
+<h1>People</h1>
+
+<div class="card">
+  <h2>Needs profile</h2>
+  <p class="muted" style="font-size:0.8rem;margin-bottom:0.75rem">
+    High-frequency senders YETI has no contact drawer for. Seeding a
+    profile stops triage from re-asking "who is this?" on every email.
+  </p>
+  <div id="people-gaps"
+       hx-get="/dashboard/partials/people-needs-profile"
+       hx-trigger="load, every 60s"
+       hx-swap="innerHTML">
+    <div class="muted">Loading...</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Known contacts</h2>
+  <input type="text" id="people-search"
+         placeholder="Search by name, email, company..."
+         hx-get="/dashboard/partials/people-contacts"
+         hx-trigger="keyup changed delay:300ms, load"
+         hx-target="#people-contacts"
+         hx-swap="innerHTML"
+         name="q"
+         autocomplete="off"
+         style="width:100%;padding:0.55rem 0.75rem;
+                background:var(--bg);border:1px solid var(--border);
+                border-radius:4px;color:var(--text);
+                font-size:0.85rem;outline:none;
+                margin-bottom:0.75rem;font-family:inherit">
+  <div id="people-contacts">
+    <div class="muted">Loading...</div>
+  </div>
+</div>
+
+<div id="contact-detail-backdrop" class="modal-backdrop"
+     onclick="if(event.target===this)closeContact()">
+  <div class="modal" id="contact-detail">
+    <h2 id="contact-detail-name">Contact</h2>
+    <div id="contact-detail-body"
+         style="white-space:pre-wrap;font-size:0.85rem;
+                color:var(--text-soft);line-height:1.6"></div>
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeContact()">Close</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+window.askYetiAbout = function(name, email, count) {
+    const input = document.querySelector(
+        '.global-chat-input input[name="message"]'
+    );
+    const form = document.querySelector('.global-chat-input');
+    if (!input || !form) return;
+    const subject = name && name.trim() ? name : email;
+    input.value =
+        "Tell me about " + subject + " (" + email + "). " +
+        "They've appeared in " + count + " recent emails and I have " +
+        "no profile yet. Role, company, what we work on?";
+    input.focus();
+    if (window.htmx) {
+        htmx.trigger(form, 'submit');
+    } else {
+        form.requestSubmit();
+    }
+};
+
+window.openContact = async function(id, name) {
+    const r = await fetch(
+        '/dashboard/partials/people-contact-body?id=' +
+        encodeURIComponent(id)
+    );
+    const body = await r.text();
+    document.getElementById('contact-detail-name').textContent =
+        name || 'Contact';
+    document.getElementById('contact-detail-body').textContent = body;
+    document.getElementById('contact-detail-backdrop')
+        .classList.add('open');
+};
+
+window.closeContact = function() {
+    document.getElementById('contact-detail-backdrop')
+        .classList.remove('open');
+};
+</script>
+{% endblock %}
