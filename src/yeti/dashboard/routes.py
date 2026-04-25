@@ -1,6 +1,7 @@
 """Dashboard routes — HTMX + Jinja2 web interface."""
 
 import asyncio
+import functools
 import json
 from pathlib import Path
 
@@ -428,13 +429,58 @@ async def note_partial(
     )
 
 
+_MD_ALLOWED_TAGS = frozenset({
+    "p", "br", "strong", "em", "code", "pre",
+    "ul", "ol", "li",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "blockquote", "hr", "a",
+    "table", "thead", "tbody", "tr", "th", "td",
+    "del", "s",
+})
+_MD_ALLOWED_ATTRS = {
+    "a": ["href", "title"],
+    "th": ["align"],
+    "td": ["align"],
+}
+
+
+@functools.lru_cache(maxsize=1)
+def _md_parser():
+    from markdown_it import MarkdownIt
+
+    return (
+        MarkdownIt("commonmark", {"breaks": True, "html": False})
+        .enable("table")
+        .enable("strikethrough")
+    )
+
+
+def _render_markdown(text: str) -> str:
+    """Render agent markdown to sanitized HTML."""
+    if not text:
+        return ""
+    try:
+        import bleach
+
+        raw = _md_parser().render(text)
+        return bleach.clean(
+            raw,
+            tags=_MD_ALLOWED_TAGS,
+            attributes=_MD_ALLOWED_ATTRS,
+            strip=True,
+        )
+    except Exception:
+        # Fall back to escaped plaintext if rendering fails.
+        return _escape(text).replace("\n", "<br>")
+
+
 @router.post("/partials/chat", response_class=HTMLResponse)
 async def chat_partial(
     message: str = Form(...), history: str = Form("")
 ):
     user_html = (
         f'<div class="chat-msg user">'
-        f"<strong>Daniel:</strong> {message}</div>"
+        f"<strong>Daniel:</strong> {_escape(message)}</div>"
     )
 
     if not settings.anthropic_api_key:
@@ -465,16 +511,20 @@ async def chat_partial(
             message,
             conversation_history=conversation_history or None,
         )
+        rendered = _render_markdown(response)
         return (
             user_html
             + f'<div class="chat-msg assistant">'
-            f"<strong>YETI:</strong> {response}</div>"
+            f"<strong>YETI:</strong>"
+            f'<div class="chat-md">{rendered}</div>'
+            f"</div>"
         )
     except Exception as e:
         return (
             user_html
             + f'<div class="chat-msg assistant">'
-            f"<strong>YETI:</strong> Error: {e}</div>"
+            f"<strong>YETI:</strong> Error: {_escape(str(e))}"
+            f"</div>"
         )
 
 
