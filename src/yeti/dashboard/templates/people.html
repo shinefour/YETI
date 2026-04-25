@@ -46,6 +46,8 @@
          style="white-space:pre-wrap;font-size:0.85rem;
                 color:var(--text-soft);line-height:1.6"></div>
     <div class="modal-actions">
+      <button class="btn btn-danger btn-sm"
+              onclick="deleteContact()">Delete drawer</button>
       <button class="secondary" onclick="closeContact()">Close</button>
     </div>
   </div>
@@ -79,12 +81,15 @@ window.askYetiAbout = function(name, email, count) {
     }
 };
 
+window._currentContact = null;
+
 window.openContact = async function(id, name) {
     const r = await fetch(
         '/dashboard/partials/people-contact-body?id=' +
         encodeURIComponent(id)
     );
     const body = await r.text();
+    window._currentContact = { id: id, name: name };
     document.getElementById('contact-detail-name').textContent =
         name || 'Contact';
     document.getElementById('contact-detail-body').textContent = body;
@@ -93,8 +98,45 @@ window.openContact = async function(id, name) {
 };
 
 window.closeContact = function() {
+    window._currentContact = null;
     document.getElementById('contact-detail-backdrop')
         .classList.remove('open');
+};
+
+window.deleteContact = async function() {
+    const c = window._currentContact;
+    if (!c) return;
+    const ok = window.confirm(
+        'Delete drawer for "' + (c.name || 'this contact') +
+        '"? This cannot be undone.'
+    );
+    if (!ok) return;
+    const r = await fetch(
+        '/dashboard/api/contacts/' +
+        encodeURIComponent(c.id) + '/delete',
+        { method: 'POST', credentials: 'include' }
+    );
+    if (!r.ok) {
+        let detail = r.status;
+        try {
+            const j = await r.json();
+            detail = j.error || detail;
+        } catch (e) { /* ignore */ }
+        alert('Delete failed: ' + detail);
+        return;
+    }
+    closeContact();
+    const search = document.getElementById('people-search');
+    const list = document.getElementById('people-contacts');
+    if (window.htmx && search) {
+        htmx.trigger(search, 'keyup');
+    } else if (list) {
+        const q = search ? encodeURIComponent(search.value || '') : '';
+        const resp = await fetch(
+            '/dashboard/partials/people-contacts?q=' + q
+        );
+        list.innerHTML = await resp.text();
+    }
 };
 </script>
 {% endblock %}

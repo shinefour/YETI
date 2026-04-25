@@ -1503,6 +1503,41 @@ async def people_contacts_partial(q: str = ""):
     return "\n".join(rows)
 
 
+@router.post("/api/contacts/{drawer_id}/delete")
+async def delete_contact_drawer(drawer_id: str):
+    """Hard-delete a contact drawer via direct ChromaDB.
+
+    Bypasses the MCP `mempalace_delete_drawer` path because that
+    occasionally returns success without removing the drawer.
+    Returns 200 on success even if the id wasn't present (idempotent).
+    """
+    from fastapi.responses import JSONResponse
+
+    if not drawer_id or not drawer_id.strip():
+        return JSONResponse(
+            {"error": "drawer_id required"}, status_code=400
+        )
+    try:
+        import chromadb
+
+        from yeti.memory.client import MemPalaceClient
+    except Exception:
+        return JSONResponse(
+            {"error": "chromadb unavailable"}, status_code=500
+        )
+    try:
+        client = MemPalaceClient()
+        col = chromadb.PersistentClient(
+            path=client.palace_path
+        ).get_collection("mempalace_drawers")
+        col.delete(ids=[drawer_id])
+    except Exception as e:
+        return JSONResponse(
+            {"error": str(e)}, status_code=500
+        )
+    return {"ok": True, "deleted": drawer_id}
+
+
 @router.get(
     "/partials/people-contact-body",
     response_class=HTMLResponse,
