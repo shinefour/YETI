@@ -618,6 +618,8 @@
                   hx-target="#global-chat-messages"
                   hx-swap="beforeend"
                   hx-indicator="#global-chat"
+                  hx-on::config-request="event.detail.parameters.history =
+                    window.collectChatHistory('global-chat-messages')"
                   hx-on::after-request="this.reset();
                     document.getElementById('global-chat-messages').scrollTop =
                     document.getElementById('global-chat-messages').scrollHeight">
@@ -637,6 +639,29 @@
             document.body.dispatchEvent(new Event('refresh'));
         });
     }
+
+    // Serialize the visible chat turns so the backend can pass them to
+    // the agent as conversation_history. Last 20 turns max (40 messages)
+    // to keep the payload bounded.
+    window.collectChatHistory = function(containerId) {
+        const root = document.getElementById(containerId);
+        if (!root) return '[]';
+        const turns = [];
+        root.querySelectorAll('.chat-msg').forEach(el => {
+            const isUser = el.classList.contains('user');
+            const strong = el.querySelector('strong');
+            let content = el.textContent || '';
+            if (strong) {
+                content = content.slice(strong.textContent.length).trim();
+            }
+            if (!content) return;
+            turns.push({
+                role: isUser ? 'user' : 'assistant',
+                content: content
+            });
+        });
+        return JSON.stringify(turns.slice(-40));
+    };
     </script>
 </body>
 </html>

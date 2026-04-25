@@ -429,7 +429,9 @@ async def note_partial(
 
 
 @router.post("/partials/chat", response_class=HTMLResponse)
-async def chat_partial(message: str = Form(...)):
+async def chat_partial(
+    message: str = Form(...), history: str = Form("")
+):
     user_html = (
         f'<div class="chat-msg user">'
         f"<strong>Daniel:</strong> {message}</div>"
@@ -443,8 +445,26 @@ async def chat_partial(message: str = Form(...)):
             "</div>"
         )
 
+    conversation_history: list[dict] = []
+    if history:
+        try:
+            parsed = json.loads(history)
+            if isinstance(parsed, list):
+                conversation_history = [
+                    t
+                    for t in parsed
+                    if isinstance(t, dict)
+                    and t.get("role") in ("user", "assistant")
+                    and isinstance(t.get("content"), str)
+                ][-40:]
+        except Exception:
+            conversation_history = []
+
     try:
-        response = await chat_agent(message)
+        response = await chat_agent(
+            message,
+            conversation_history=conversation_history or None,
+        )
         return (
             user_html
             + f'<div class="chat-msg assistant">'
@@ -1299,12 +1319,73 @@ def _list_contact_drawers(
     return items
 
 
+async def _kg_related_people(query: str) -> list[dict]:
+    """Fetch people related to `query` via incoming KG facts.
+
+    `kg_query(entity=X)` returns facts where X is subject OR object.
+    Incoming facts (where X is object) have a subject who is related to
+    X — typically a person via predicates like works_at, consults_for,
+    reports_to. Returns list of {name, predicate} for unique subjects.
+    """
+    if not query or not query.strip():
+        return []
+    try:
+        from yeti.memory.client import MemPalaceClient
+
+        client = MemPalaceClient()
+        kg = await client.kg_query(
+            entity=query.strip(), source="people-search"
+        )
+    except Exception:
+        return []
+    facts = kg.get("facts") if isinstance(kg, dict) else None
+    if not isinstance(facts, list):
+        return []
+    seen: set[str] = set()
+    related: list[dict] = []
+    for f in facts:
+        if not isinstance(f, dict):
+            continue
+        if f.get("direction") != "incoming":
+            continue
+        if f.get("current") is False:
+            continue
+        subj = (f.get("subject") or "").strip()
+        if not subj:
+            continue
+        key = subj.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        related.append(
+            {
+                "name": subj,
+                "predicate": (f.get("predicate") or "").strip(),
+            }
+        )
+    return related
+
+
 @router.get(
     "/partials/people-contacts", response_class=HTMLResponse
 )
 async def people_contacts_partial(q: str = ""):
-    items = _list_contact_drawers(query=q, limit=200)
-    if not items:
+    drawers = _list_contact_drawers(query=q, limit=200)
+    drawer_names = {it["name"].lower() for it in drawers}
+
+    # Hybrid search: when q is given, also pull people related to q
+    # via the KG. Surfaces folks whose drawer body lacks the term
+    # (e.g. "works_at Conetic" not in their drawer text) plus people
+    # who have no drawer at all (e.g. all employees of a vendor).
+    kg_only: list[dict] = []
+    if q.strip():
+        related = await _kg_related_people(q)
+        for r in related:
+            if r["name"].lower() in drawer_names:
+                continue
+            kg_only.append(r)
+
+    if not drawers and not kg_only:
         msg = (
             "No matches."
             if q
@@ -1314,7 +1395,7 @@ async def people_contacts_partial(q: str = ""):
         return f'<div class="muted">{msg}</div>'
 
     rows = []
-    for it in items:
+    for it in drawers:
         src_tag = ""
         if it["source"]:
             src_tag = (
@@ -1337,6 +1418,38 @@ async def people_contacts_partial(q: str = ""):
             f"</span>"
             f"</div>"
         )
+
+    if kg_only:
+        rows.append(
+            '<div class="muted" style="font-size:0.7rem;'
+            "text-transform:uppercase;letter-spacing:0.08em;"
+            'margin:0.75rem 0 0.25rem">'
+            f"Related to {_escape(q)} (no profile yet)"
+            "</div>"
+        )
+        for r in kg_only:
+            name = r["name"]
+            pred = r["predicate"] or "related"
+            rows.append(
+                f'<div class="status-row">'
+                f'<span style="flex:1;min-width:0">'
+                f'<strong>{_escape(name)}</strong>'
+                f' <span class="badge badge-dim">'
+                f"{_escape(pred)} {_escape(q)}</span>"
+                f'<div class="muted" '
+                f'style="font-size:0.75rem">'
+                f"KG entity, no contact drawer."
+                f"</div>"
+                f"</span>"
+                f'<span class="btn-row">'
+                f'<button class="btn btn-primary btn-sm" '
+                f"onclick=\"askYetiAbout("
+                f"'{_escape(name)}','',0)\">"
+                f"Add profile via chat</button>"
+                f"</span>"
+                f"</div>"
+            )
+
     return "\n".join(rows)
 
 

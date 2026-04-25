@@ -60,13 +60,17 @@ window.askYetiAbout = function(name, email, count) {
     const form = document.querySelector('.global-chat-input');
     if (!input || !form) return;
     const subject = name && name.trim() ? name : email;
+    const idTail = email ? " (" + email + ")" : "";
+    const evidence = count > 0
+        ? "They've sent me " + count +
+          " emails recently and you have no record yet."
+        : "You have KG facts about them but no contact drawer.";
     input.value =
-        "Add a contact profile for " + subject +
-        " (" + email + "). They've sent me " + count +
-        " emails recently and you have no record yet. Ask me " +
-        "whatever you need — full name, role, company, how we " +
-        "work together — one question at a time, then save the " +
-        "drawer in wing=people, room=contacts.";
+        "Add a contact profile for " + subject + idTail +
+        ". " + evidence + " Ask me whatever you need — full " +
+        "name, role, company, how we work together — one " +
+        "question at a time, then save the drawer in " +
+        "wing=people, room=contacts.";
     input.focus();
     if (window.htmx) {
         htmx.trigger(form, 'submit');
