@@ -61,9 +61,12 @@ window.askYetiAbout = function(name, email, count) {
     if (!input || !form) return;
     const subject = name && name.trim() ? name : email;
     input.value =
-        "Tell me about " + subject + " (" + email + "). " +
-        "They've appeared in " + count + " recent emails and I have " +
-        "no profile yet. Role, company, what we work on?";
+        "Add a contact profile for " + subject +
+        " (" + email + "). They've sent me " + count +
+        " emails recently and you have no record yet. Ask me " +
+        "whatever you need — full name, role, company, how we " +
+        "work together — one question at a time, then save the " +
+        "drawer in wing=people, room=contacts.";
     input.focus();
     if (window.htmx) {
         htmx.trigger(form, 'submit');

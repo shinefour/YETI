@@ -1215,9 +1215,7 @@ async def people_needs_profile_partial():
             f'<button class="btn btn-primary btn-sm" '
             f"onclick=\"askYetiAbout("
             f"'{_escape(name)}','{_escape(email)}',{count})\">"
-            f"Ask in chat</button>"
-            f'<a class="btn btn-ghost btn-sm" '
-            f'href="/dashboard/inbox">Inbox form</a>'
+            f"Add profile via chat</button>"
             f"</span>"
             f"</div>"
         )
