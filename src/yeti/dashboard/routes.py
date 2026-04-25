@@ -1530,48 +1530,35 @@ async def add_email_blacklist(payload: dict):
 
 @router.post("/api/contacts/{drawer_id}/delete")
 async def delete_contact_drawer(drawer_id: str):
-    """Hard-delete a contact drawer via direct ChromaDB.
+    """Soft-delete a contact drawer.
 
-    Bypasses the MCP `mempalace_delete_drawer` path because that
-    occasionally returns success without removing the drawer.
-    Returns diagnostic state so we can see whether the id existed
-    and whether it's gone afterwards.
+    Direct ChromaDB col.delete returns success but doesn't actually
+    remove the row in this storage layout, so we mark the drawer as
+    superseded in YETI's SupersededStore — the same mechanism the
+    nightly sleep dedupe pass uses. _list_contact_drawers already
+    filters superseded ids, so the drawer disappears from the People
+    page immediately. Physical row stays in chromadb (recoverable
+    via SQL surgery if needed).
     """
     from fastapi.responses import JSONResponse
+
+    from yeti.models.superseded import SupersededStore
 
     if not drawer_id or not drawer_id.strip():
         return JSONResponse(
             {"error": "drawer_id required"}, status_code=400
         )
     try:
-        import chromadb
-
-        from yeti.memory.client import MemPalaceClient
-    except Exception:
-        return JSONResponse(
-            {"error": "chromadb unavailable"}, status_code=500
+        SupersededStore().supersede(
+            drawer_id=drawer_id,
+            superseded_by=drawer_id,
+            reason="manual delete from dashboard",
         )
-    try:
-        client = MemPalaceClient()
-        chroma = chromadb.PersistentClient(path=client.palace_path)
-        col_names = [c.name for c in chroma.list_collections()]
-        col = chroma.get_collection("mempalace_drawers")
-        before = col.get(ids=[drawer_id], include=["metadatas"])
-        existed_before = bool(before.get("ids"))
-        col.delete(ids=[drawer_id])
-        after = col.get(ids=[drawer_id], include=["metadatas"])
-        existed_after = bool(after.get("ids"))
     except Exception as e:
         return JSONResponse(
             {"error": str(e)}, status_code=500
         )
-    return {
-        "ok": True,
-        "deleted": drawer_id,
-        "existed_before": existed_before,
-        "existed_after": existed_after,
-        "collections": col_names,
-    }
+    return {"ok": True, "deleted": drawer_id}
 
 
 @router.get(
