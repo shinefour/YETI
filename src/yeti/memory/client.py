@@ -468,6 +468,23 @@ class MemPalaceClient:
                         "distance": result["distances"][0][i],
                     }
                 )
+
+            # Filter drawers superseded by the sleep dedupe pass.
+            try:
+                from yeti.models.superseded import SupersededStore
+
+                blocked = SupersededStore().superseded_ids()
+                if blocked:
+                    items = [
+                        it
+                        for it in items
+                        if it["id"] not in blocked
+                    ]
+            except Exception:
+                logger.exception(
+                    "Failed to filter superseded drawers"
+                )
+
             _log_drawer_hits(
                 [it["id"] for it in items], source, query
             )

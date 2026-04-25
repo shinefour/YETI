@@ -35,6 +35,10 @@ celery_app.conf.beat_schedule = {
         "task": "yeti.worker.sync_outlook",
         "schedule": 300.0,
     },
+    "sleep-deterministic": {
+        "task": "yeti.worker.sleep_deterministic",
+        "schedule": crontab(hour=4, minute=0),
+    },
 }
 
 
@@ -446,6 +450,23 @@ def _sync_outlook_one(email: str, wing: str):
         skipped,
         deduped,
     )
+
+
+@celery_app.task
+def sleep_deterministic():
+    """Nightly deterministic memory consolidation.
+
+    Currently runs drawer dedupe (exact-text). Reconcile + gaps land
+    in subsequent commits. Each sub-op is idempotent and writes to an
+    audit trail (model tables) — safe to re-run.
+    """
+    from yeti.sleep.dedupe import run_dedupe
+
+    try:
+        result = run_dedupe()
+        logger.info("Sleep dedupe done: %s", result)
+    except Exception:
+        logger.exception("Sleep dedupe failed")
 
 
 @celery_app.task
