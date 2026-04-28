@@ -488,7 +488,7 @@ def sleep_deterministic():
         logger.exception("Sleep stale-persons failed")
 
     try:
-        result = run_gap_fill()
+        result = _run_async(run_gap_fill())
         logger.info("Sleep gap-fill done: %s", result)
     except Exception:
         logger.exception("Sleep gap-fill failed")

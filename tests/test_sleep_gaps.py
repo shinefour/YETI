@@ -55,3 +55,76 @@ def test_build_person_update_item_no_name_uses_email():
         }
     )
     assert "noname@example.com" in item.title
+
+
+def test_pick_canonical_prefers_longer_spelling():
+    assert (
+        gaps._pick_canonical(["1o1media", "1o1 Media", "1o1media"])
+        == "1o1 Media"
+    )
+
+
+def test_pick_canonical_empty():
+    assert gaps._pick_canonical([]) == ""
+    assert gaps._pick_canonical(["", "  "]) == ""
+
+
+def test_build_person_update_item_with_prefill():
+    item = gaps._build_person_update_for_gap(
+        {
+            "email": "max.keil@1o1media.com",
+            "name": "Max Keil",
+            "count": 5,
+            "last_seen": "2026-04-25",
+        },
+        prefill={
+            "role": "CTO",
+            "company": "1o1 Media",
+            "notes": "- involved_in: American Airlines Project",
+        },
+    )
+    by_key = {s["key"]: s for s in item.answer_schema}
+    assert by_key["role"]["value"] == "CTO"
+    assert by_key["company"]["value"] == "1o1 Media"
+    assert "American Airlines" in by_key["context"]["value"]
+    assert item.payload["kg_prefilled"] is True
+
+
+def test_build_person_update_item_no_prefill_marks_flag_false():
+    item = gaps._build_person_update_for_gap(
+        {
+            "email": "alice@example.com",
+            "name": "Alice Johnson",
+            "count": 3,
+            "last_seen": "2026-04-25",
+        }
+    )
+    assert item.payload["kg_prefilled"] is False
+
+
+def test_build_auto_drawer_renders_template():
+    text = gaps._build_auto_drawer(
+        {
+            "email": "max.keil@1o1media.com",
+            "name": "Max Keil",
+        },
+        {
+            "role": "CTO",
+            "company": "1o1 Media",
+            "notes": "- involved_in: American Airlines Project",
+        },
+    )
+    assert text.startswith("# Max Keil")
+    assert "Email: max.keil@1o1media.com" in text
+    assert "Role: CTO" in text
+    assert "Company: 1o1 Media" in text
+    assert "American Airlines" in text
+    assert "Source: sleep-gaps auto-promotion" in text
+
+
+def test_build_auto_drawer_synthesises_name_from_email():
+    text = gaps._build_auto_drawer(
+        {"email": "jane.doe@example.com", "name": ""},
+        {"role": "PM", "company": "", "notes": ""},
+    )
+    assert text.startswith("# Jane Doe")

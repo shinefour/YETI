@@ -105,6 +105,22 @@ person", "merge X into Y", "Y is the canonical name for X"):
 
 5. Confirm to Daniel what you did, naming the canonical and what was
    removed. Don't claim "merged" without step 4.
+
+CONTACT PROFILE PROTOCOL — apply when Daniel asks to add, save,
+create, or store a contact profile / person profile / person drawer
+("add a profile for X", "save a contact for Y", "create a drawer
+for Z"):
+
+1. You MUST call save_person_profile to persist the profile. Do not
+   ever claim a profile is "saved", "created", or "added" unless
+   that tool returned successfully in the same turn. The chat agent
+   has no other path that creates a contact drawer.
+
+2. Gather minimum fields conversationally if missing: full_name and
+   email. role / company / notes are optional but improve the entry.
+
+3. After the tool returns, summarise what was saved (drawer wing /
+   room, plus any KG facts added) — quoting fields back to Daniel.
 """
 
 TOOLS = [
@@ -402,6 +418,48 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_person_profile",
+            "description": (
+                "Persist a contact profile drawer in MemPalace "
+                "(wing=people, room=contacts) and add matching KG "
+                "facts. REQUIRED whenever Daniel asks to add / save "
+                "/ create a profile or contact for a person. Never "
+                "claim a profile is saved without calling this tool."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "full_name": {
+                        "type": "string",
+                        "description": "Person's full name",
+                    },
+                    "email": {
+                        "type": "string",
+                        "description": "Primary email address",
+                    },
+                    "role": {
+                        "type": "string",
+                        "description": "Role / title (optional)",
+                    },
+                    "company": {
+                        "type": "string",
+                        "description": "Company / org (optional)",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": (
+                            "Additional context: relationship, "
+                            "projects, preferences (optional)"
+                        ),
+                    },
+                },
+                "required": ["full_name", "email"],
+            },
+        },
+    },
 ]
 
 
@@ -438,6 +496,84 @@ def _summarize_note(item) -> dict:
         "status": item.status.value,
         "preview": (item.content or "")[:200],
         "created_at": item.created_at,
+    }
+
+
+async def _save_person_profile(args: dict) -> dict:
+    """Persist a contact profile drawer + KG facts.
+
+    Tool body for save_person_profile. Builds a stable drawer
+    template so future merges/searches find consistent text. KG
+    enrichment is best-effort — drawer save is the contract.
+    """
+    full_name = (args.get("full_name") or "").strip()
+    email = (args.get("email") or "").strip().lower()
+    role = (args.get("role") or "").strip()
+    company = (args.get("company") or "").strip()
+    notes = (args.get("notes") or "").strip()
+
+    if not full_name or not email:
+        return {
+            "saved": False,
+            "error": "full_name and email are required",
+        }
+
+    header = f"# {full_name}"
+    line_email = f"Email: {email}"
+    line_role = f"Role: {role}" if role else ""
+    line_company = f"Company: {company}" if company else ""
+    line_notes = f"Notes: {notes}" if notes else ""
+    body = "\n".join(
+        s
+        for s in [
+            header,
+            line_email,
+            line_role,
+            line_company,
+            line_notes,
+        ]
+        if s
+    )
+
+    store_result = await _memory.store(
+        content=body,
+        wing="people",
+        room="contacts",
+        source="chat",
+    )
+
+    kg_added: list[dict] = []
+    if role:
+        try:
+            await _memory.kg_add(
+                subject=full_name, predicate="role", obj=role
+            )
+            kg_added.append({"predicate": "role", "object": role})
+        except Exception:
+            logger.exception(
+                "kg_add role failed for %s", full_name
+            )
+    if company:
+        try:
+            await _memory.kg_add(
+                subject=full_name,
+                predicate="works_at",
+                obj=company,
+            )
+            kg_added.append(
+                {"predicate": "works_at", "object": company}
+            )
+        except Exception:
+            logger.exception(
+                "kg_add works_at failed for %s", full_name
+            )
+
+    return {
+        "saved": True,
+        "wing": "people",
+        "room": "contacts",
+        "drawer": store_result,
+        "kg_facts_added": kg_added,
     }
 
 
@@ -552,6 +688,8 @@ async def _handle_tool_call(tool_call) -> str:
                 )
             ),
         }
+    elif name == "save_person_profile":
+        result = await _save_person_profile(args)
     else:
         result = {"error": f"Unknown tool: {name}"}
 

@@ -181,8 +181,94 @@ def find_gap_senders(
     return gaps
 
 
-def _build_person_update_for_gap(gap: dict) -> InboxItem:
+_COMPANY_PREDICATES = ("works_at", "works_for", "employed_at")
+_NOTE_PREDICATES = ("involved_in", "shared", "owns", "manages")
+
+
+def _pick_canonical(values: list[str]) -> str:
+    """Pick a canonical spelling from KG fact objects.
+
+    Heuristic: prefer the longest distinct value when multiple
+    spellings exist (e.g. "1o1 Media" beats "1o1media"). Returns ""
+    if no candidates.
+    """
+    cleaned = [v.strip() for v in values if v and v.strip()]
+    if not cleaned:
+        return ""
+    seen: dict[str, str] = {}
+    for v in cleaned:
+        key = re.sub(r"\s+", "", v.lower())
+        if key not in seen or len(v) > len(seen[key]):
+            seen[key] = v
+    return max(seen.values(), key=len)
+
+
+async def _kg_prefill(name: str, email: str) -> dict:
+    """Fetch role / company / notes prefill values from the KG.
+
+    Tries the display name first, then the email local-part. Returns
+    a dict with empty strings when nothing is known. Failures are
+    swallowed — gap surfacing must still work without KG help.
+    """
+    from yeti.memory.client import MemPalaceClient
+
+    candidates: list[str] = []
+    if name:
+        candidates.append(name.strip())
+    local = email.split("@", 1)[0] if email else ""
+    if local and local not in candidates:
+        candidates.append(local)
+
+    facts: list[dict] = []
+    client = MemPalaceClient()
+    for entity in candidates:
+        try:
+            res = await client.kg_query(
+                entity=entity, source="sleep-gaps"
+            )
+        except Exception:
+            logger.exception("KG query failed for %s", entity)
+            continue
+        got = res.get("facts") or []
+        if got:
+            facts = got
+            break
+
+    if not facts:
+        return {"role": "", "company": "", "notes": ""}
+
+    roles = [
+        f.get("object", "")
+        for f in facts
+        if f.get("direction") == "outgoing"
+        and f.get("predicate") == "role"
+    ]
+    companies = [
+        f.get("object", "")
+        for f in facts
+        if f.get("direction") == "outgoing"
+        and f.get("predicate") in _COMPANY_PREDICATES
+    ]
+    note_lines = [
+        f"- {f.get('predicate')}: {f.get('object')}"
+        for f in facts
+        if f.get("direction") == "outgoing"
+        and f.get("predicate") in _NOTE_PREDICATES
+        and f.get("object")
+    ]
+
+    return {
+        "role": _pick_canonical(roles),
+        "company": _pick_canonical(companies),
+        "notes": "\n".join(note_lines),
+    }
+
+
+def _build_person_update_for_gap(
+    gap: dict, prefill: dict | None = None
+) -> InboxItem:
     name_value = (gap["name"] or "").strip()
+    pf = prefill or {"role": "", "company": "", "notes": ""}
     return InboxItem(
         type=InboxType.PERSON_UPDATE,
         title=f"Who is '{name_value or gap['email']}'?",
@@ -202,16 +288,19 @@ def _build_person_update_for_gap(gap: dict) -> InboxItem:
                 "key": "role",
                 "label": "Role / title",
                 "type": "text",
+                "value": pf.get("role", ""),
             },
             {
                 "key": "company",
                 "label": "Company",
                 "type": "text",
+                "value": pf.get("company", ""),
             },
             {
                 "key": "context",
                 "label": "Notes (optional)",
                 "type": "textarea",
+                "value": pf.get("notes", ""),
             },
         ],
         quick_actions=["discard"],
@@ -220,32 +309,102 @@ def _build_person_update_for_gap(gap: dict) -> InboxItem:
             "email": gap["email"],
             "mentioned_as": name_value or gap["email"],
             "wing_context": "people",
+            "kg_prefilled": bool(
+                pf.get("role")
+                or pf.get("company")
+                or pf.get("notes")
+            ),
         },
         source="sleep-gaps",
         confidence=0.6,
     )
 
 
-def run_gap_fill() -> dict:
-    """Surface high-frequency unknowns as PERSON_UPDATE prompts."""
+def _build_auto_drawer(gap: dict, prefill: dict) -> str:
+    """Compose drawer text from gap candidate + KG prefill."""
+    name = (gap.get("name") or "").strip()
+    email = (gap.get("email") or "").strip().lower()
+    if not name:
+        local = email.split("@", 1)[0] if email else ""
+        name = local.replace(".", " ").replace("_", " ").title()
+
+    role = prefill.get("role", "")
+    company = prefill.get("company", "")
+    notes = prefill.get("notes", "")
+
+    lines = [f"# {name}"]
+    if email:
+        lines.append(f"Email: {email}")
+    if role:
+        lines.append(f"Role: {role}")
+    if company:
+        lines.append(f"Company: {company}")
+    if notes:
+        lines.append(f"Notes:\n{notes}")
+    lines.append("Source: sleep-gaps auto-promotion from KG facts")
+    return "\n".join(lines)
+
+
+async def _auto_promote_drawer(gap: dict, prefill: dict) -> bool:
+    """Persist a contact drawer from KG prefill. Returns True on save."""
+    from yeti.memory.client import MemPalaceClient
+
+    try:
+        client = MemPalaceClient()
+        await client.store(
+            content=_build_auto_drawer(gap, prefill),
+            wing="people",
+            room="contacts",
+            source="sleep-gaps",
+        )
+        return True
+    except Exception:
+        logger.exception(
+            "Auto-promote drawer failed for %s", gap.get("email")
+        )
+        return False
+
+
+async def run_gap_fill() -> dict:
+    """Resolve high-frequency unknowns.
+
+    For each candidate:
+      * If KG has enough facts (role or company) -> auto-create a
+        contact drawer directly and skip the inbox prompt.
+      * Otherwise surface a PERSON_UPDATE inbox item, pre-filled
+        with whatever KG fragments exist.
+    """
     gaps = find_gap_senders()
     inbox = InboxStore()
-    created = 0
+    surfaced = 0
+    auto_promoted = 0
     for gap in gaps:
         if _has_pending_gap_item(gap["email"], inbox):
             continue
+        prefill = await _kg_prefill(gap["name"], gap["email"])
+        if prefill.get("role") or prefill.get("company"):
+            if await _auto_promote_drawer(gap, prefill):
+                auto_promoted += 1
+                continue
         try:
-            inbox.create(_build_person_update_for_gap(gap))
-            created += 1
+            inbox.create(
+                _build_person_update_for_gap(gap, prefill)
+            )
+            surfaced += 1
         except Exception:
             logger.exception(
                 "Failed to create gap inbox item for %s",
                 gap["email"],
             )
     logger.info(
-        "Sleep gap-fill: surfaced=%d "
+        "Sleep gap-fill: auto_promoted=%d surfaced=%d "
         "(found=%d above threshold)",
-        created,
+        auto_promoted,
+        surfaced,
         len(gaps),
     )
-    return {"surfaced": created, "candidates": len(gaps)}
+    return {
+        "auto_promoted": auto_promoted,
+        "surfaced": surfaced,
+        "candidates": len(gaps),
+    }
