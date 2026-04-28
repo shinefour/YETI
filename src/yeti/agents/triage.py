@@ -589,10 +589,11 @@ async def _find_person_matches(name: str) -> list[dict]:
 async def _person_known_in_kg(name: str) -> bool:
     """True if the KG has any fact mentioning this name as an entity.
 
-    Catches people that were added via chat (kg_add with bare-name
-    subjects like "Daniel Costa") rather than via the inbox flow that
-    writes a `name:<X>` indirection. Without this, triage keeps asking
-    "Who is X?" even when the system can describe X in full.
+    Token-aware: bare "Cam" counts as known when KG has facts under
+    "Cam Walker" (target tokens {cam} ⊂ subject tokens {cam, walker}).
+    Required because canonicalise_list builds its index only from
+    drawer names — KG-only people (mentioned via incoming facts but
+    no rendered drawer) wouldn't otherwise be recognised.
     """
     if not name or not name.strip():
         return False
@@ -604,11 +605,19 @@ async def _person_known_in_kg(name: str) -> bool:
         if not isinstance(facts, list):
             return False
         target = fold(name)
-        return any(
-            fold(f.get("subject") or "") == target
-            or fold(f.get("object") or "") == target
-            for f in facts
-        )
+        target_tokens = set(target.split())
+        if not target_tokens:
+            return False
+        for f in facts:
+            for side in (f.get("subject"), f.get("object")):
+                sf = fold(side or "")
+                if not sf:
+                    continue
+                if sf == target:
+                    return True
+                if target_tokens.issubset(set(sf.split())):
+                    return True
+        return False
     except Exception:
         logger.exception("KG lookup failed for %s", name)
         return False

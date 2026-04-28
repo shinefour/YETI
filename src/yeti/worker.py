@@ -467,6 +467,7 @@ def sleep_deterministic():
     from yeti.sleep.dedupe import run_dedupe
     from yeti.sleep.gaps import run_gap_fill
     from yeti.sleep.reconcile import run_reconcile
+    from yeti.sleep.stale_persons import run_stale_persons_sweep
 
     try:
         result = run_dedupe()
@@ -479,6 +480,12 @@ def sleep_deterministic():
         logger.info("Sleep reconcile done: %s", result)
     except Exception:
         logger.exception("Sleep reconcile failed")
+
+    try:
+        result = _run_async(run_stale_persons_sweep())
+        logger.info("Sleep stale-persons done: %s", result)
+    except Exception:
+        logger.exception("Sleep stale-persons failed")
 
     try:
         result = run_gap_fill()
