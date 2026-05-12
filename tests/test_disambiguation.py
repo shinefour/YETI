@@ -26,9 +26,10 @@ def _make_note(title="Test"):
 
 
 @pytest.mark.asyncio
-async def test_unknown_person_creates_inbox(
+async def test_unknown_person_does_not_surface(
     inbox_store, monkeypatch
 ):
+    """The proactive "Who is X?" surface was retired (2026-05)."""
     monkeypatch.setattr(
         triage,
         "_find_person_matches",
@@ -44,11 +45,8 @@ async def test_unknown_person_creates_inbox(
     count = await triage._resolve_people(
         ["Unknown"], "conetic", note
     )
-    assert count == 1
-    items = inbox_store.list_pending()
-    assert len(items) == 1
-    assert items[0].type == InboxType.PERSON_UPDATE
-    assert "Unknown" in items[0].title
+    assert count == 0
+    assert inbox_store.count_pending() == 0
 
 
 @pytest.mark.asyncio

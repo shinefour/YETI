@@ -6,9 +6,43 @@ from yeti.agents import name_resolver
 from yeti.agents.name_resolver import (
     canonicalise_list,
     fold,
+    humanize_email_local,
     refresh_cache,
     resolve,
 )
+
+
+def test_humanize_email_local_dotted():
+    assert humanize_email_local("warren.hamilton") == "Warren Hamilton"
+
+
+def test_humanize_email_local_underscore():
+    assert humanize_email_local("max_keil") == "Max Keil"
+
+
+def test_humanize_email_local_hyphen():
+    assert humanize_email_local("anna-maria") == "Anna Maria"
+
+
+def test_humanize_email_local_passes_through_proper_name():
+    assert humanize_email_local("Warren Hamilton") == "Warren Hamilton"
+
+
+def test_humanize_email_local_passes_through_mixed_case():
+    assert humanize_email_local("McDonald") == "McDonald"
+
+
+def test_humanize_email_local_passes_through_single_token():
+    assert humanize_email_local("daniel") == "daniel"
+
+
+def test_humanize_email_local_passes_through_with_space():
+    assert humanize_email_local("warren hamilton") == "warren hamilton"
+
+
+def test_humanize_email_local_empty():
+    assert humanize_email_local("") == ""
+    assert humanize_email_local("   ") == ""
 
 
 def test_fold_strips_diacritics():

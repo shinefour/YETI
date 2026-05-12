@@ -241,19 +241,22 @@ async def _apply_triage_result(
         logger.exception("Failed to store drawer")
 
     # 2. Add KG facts
+    from yeti.agents.name_resolver import humanize_email_local
+
     people_set = {
-        n.strip()
+        humanize_email_local(n.strip())
         for n in result.get("people_mentioned", [])
         if n and n.strip()
     }
     refresh_subjects: set[str] = set()
     for fact in result.get("facts", []):
         try:
-            subject = fact["subject"]
+            subject = humanize_email_local(fact["subject"])
+            obj = humanize_email_local(fact["object"])
             await _memory.kg_add(
                 subject=subject,
                 predicate=fact["predicate"],
-                obj=fact["object"],
+                obj=obj,
                 valid_from=fact.get("valid_from"),
             )
             counts["facts"] += 1
@@ -414,72 +417,20 @@ async def _resolve_people(
         matches = await _find_person_matches(name)
 
         if len(matches) == 0:
-            # Drawer search missed, but the KG may know this person
-            # already (e.g. facts written by chat or by an earlier
-            # disambiguation). Treat any KG hit on the bare name as
-            # "known" and skip creating an inbox prompt.
-            if await _person_known_in_kg(name):
-                logger.info(
-                    "Resolved '%s' via KG facts (no contact drawer)",
-                    name,
-                )
-                continue
-
-            if _inbox.has_pending_for_person(
-                InboxType.PERSON_UPDATE, name, wing
-            ):
-                logger.info(
-                    "Skipping duplicate PERSON_UPDATE for '%s' in %s",
-                    name,
-                    wing,
-                )
-                continue
-
-            # Unknown person — schema-driven new contact form
-            _inbox.create(
-                InboxItem(
-                    type=InboxType.PERSON_UPDATE,
-                    title=f"Who is '{name}'?",
-                    summary=(
-                        f"First mention of '{name}' in note "
-                        f"'{note.title or 'untitled'}'."
-                    ),
-                    answer_schema=[
-                        {
-                            "key": "full_name",
-                            "label": "Full name",
-                            "type": "text",
-                            "value": name,
-                        },
-                        {
-                            "key": "role",
-                            "label": "Role / title",
-                            "type": "text",
-                        },
-                        {
-                            "key": "company",
-                            "label": "Company",
-                            "type": "text",
-                        },
-                        {
-                            "key": "context",
-                            "label": "Notes (optional)",
-                            "type": "textarea",
-                        },
-                    ],
-                    quick_actions=["discard"],
-                    source_note_id=note.id,
-                    payload={
-                        "mentioned_as": name,
-                        "wing_context": wing,
-                    },
-                    source=f"triage:{note.id}",
-                    confidence=0.7,
-                )
+            # Unknown person mentioned. Triage does not surface a
+            # "Who is X?" inbox item — that proactive surface was
+            # retired (see project_people_pipeline memory). The
+            # name lives only in whatever KG facts the LLM wrote
+            # for this note; auto-promotion picks it up later when
+            # role / company facts accumulate.
+            logger.info(
+                "Unknown person '%s' in %s; not surfacing",
+                name,
+                wing,
             )
-            inbox_created += 1
+            continue
 
-        elif len(matches) == 1:
+        if len(matches) == 1:
             # Unique match — already known, no action needed
             logger.info(
                 "Resolved '%s' to single match: %s",

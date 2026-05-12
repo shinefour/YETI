@@ -28,11 +28,34 @@ logger = logging.getLogger(__name__)
 
 _CACHE_TTL_S = 300.0
 _WS_RE = re.compile(r"\s+")
+_EMAIL_LOCAL_RE = re.compile(r"^[a-z0-9]+(?:[._\-][a-z0-9]+)+$")
 
 
 def _strip_diacritics(s: str) -> str:
     nfkd = unicodedata.normalize("NFKD", s)
     return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
+def humanize_email_local(name: str) -> str:
+    """Turn an email-local-style token into a Title Cased name.
+
+    Examples: "warren.hamilton" -> "Warren Hamilton",
+    "max_keil" -> "Max Keil". Names that already contain whitespace
+    or any uppercase letter are returned untouched — the LLM most
+    likely already produced a proper form, and we don't want to
+    flatten correctly-cased values like "McDonald".
+    """
+    n = (name or "").strip()
+    if not n or " " in n:
+        return n
+    if any(ch.isupper() for ch in n):
+        return n
+    if not _EMAIL_LOCAL_RE.match(n):
+        return n
+    parts = [p for p in re.split(r"[._\-]+", n) if p]
+    if not parts:
+        return n
+    return " ".join(p.title() for p in parts)
 
 
 def fold(name: str) -> str:
@@ -172,7 +195,7 @@ async def canonicalise_list(
     for raw in names:
         if not raw or not raw.strip():
             continue
-        cleaned = raw.strip()
+        cleaned = humanize_email_local(raw.strip())
         canonical = await resolve(cleaned, client=client)
         chosen = canonical if canonical else cleaned
         key = fold(chosen)
