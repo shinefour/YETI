@@ -787,6 +787,49 @@ def _resolve_note_id(item) -> str:
     return ""
 
 
+_EMAIL_HEADER_KEYS = (
+    "from",
+    "to",
+    "cc",
+    "bcc",
+    "subject",
+    "date",
+    "received_at",
+    "reply-to",
+)
+
+
+def _split_email_headers(
+    content: str,
+) -> tuple[list[tuple[str, str]], str]:
+    """Pull leading "Key: Value" lines off an ingested email note.
+
+    Returns (headers, body). Headers are preserved in original order.
+    Stops at the first blank line or non-header-shaped line. Falls
+    back to ([], content) when nothing header-like is at the top.
+    """
+    lines = (content or "").splitlines()
+    headers: list[tuple[str, str]] = []
+    idx = 0
+    while idx < len(lines):
+        raw = lines[idx]
+        if not raw.strip():
+            idx += 1
+            break
+        if ":" not in raw:
+            break
+        key, _, value = raw.partition(":")
+        key_norm = key.strip().lower()
+        if key_norm not in _EMAIL_HEADER_KEYS:
+            break
+        headers.append((key.strip(), value.strip()))
+        idx += 1
+    if not headers:
+        return [], content or ""
+    body = "\n".join(lines[idx:])
+    return headers, body
+
+
 def _render_source_note(item) -> str:
     """If the item has a source note, render it as a collapsible card."""
     note_id = _resolve_note_id(item)
@@ -804,7 +847,6 @@ def _render_source_note(item) -> str:
 
     captured = note.created_at.split("T")[0]
     title = note.title or "Source note"
-    content_html = _html.escape(note.content or "")
     context_html = (
         f'<div class="muted" style="font-size:0.75rem;'
         f'margin-bottom:0.5rem">Context: '
@@ -813,6 +855,35 @@ def _render_source_note(item) -> str:
         else ""
     )
 
+    is_email = note.source.value == "email"
+    headers, body_text = (
+        _split_email_headers(note.content or "")
+        if is_email
+        else ([], note.content or "")
+    )
+
+    headers_html = ""
+    if headers:
+        rows = "".join(
+            f'<div style="display:flex;gap:0.5rem;'
+            f"font-size:0.78rem;line-height:1.4;"
+            f'padding:0.15rem 0">'
+            f'<span class="muted" '
+            f'style="min-width:4.5rem;text-align:right">'
+            f"{_html.escape(k)}</span>"
+            f'<span style="flex:1;word-break:break-word">'
+            f"{_html.escape(v)}</span>"
+            f"</div>"
+            for k, v in headers
+        )
+        headers_html = (
+            f'<div style="background:var(--bg);'
+            f"border:1px solid var(--border);"
+            f"border-radius:4px;padding:0.5rem 0.75rem;"
+            f'margin-bottom:0.5rem">{rows}</div>'
+        )
+
+    body_html = _html.escape(body_text)
     return f"""
     <div class="card">
       <h2>Source: {_html.escape(title)}</h2>
@@ -821,12 +892,13 @@ def _render_source_note(item) -> str:
         Captured {captured} via {note.source.value}
       </div>
       {context_html}
+      {headers_html}
       <pre style="white-space:pre-wrap;font-size:0.8rem;
                   color:var(--text-soft);max-height:400px;
                   overflow-y:auto;background:var(--bg);
                   padding:0.75rem;border-radius:4px;
                   border:1px solid var(--border);
-                  font-family:inherit">{content_html}</pre>
+                  font-family:inherit">{body_html}</pre>
     </div>
     """
 
