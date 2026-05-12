@@ -538,5 +538,33 @@ def _interactive_session():
         console.print()
 
 
+@app.command(name="purge-person-update-inbox")
+def purge_person_update_inbox():
+    """One-shot cleanup of pending PERSON_UPDATE inbox items.
+
+    Removes the legacy "Who is X?" prompts created by the old
+    sleep-gaps surface. The proactive people queue was retired in
+    favour of the silent earned-promotion sweep, so these items
+    have no follow-up path.
+    """
+    from yeti.models.inbox import InboxStore, InboxType
+
+    store = InboxStore()
+    items = [
+        i
+        for i in store.list_pending()
+        if i.type == InboxType.PERSON_UPDATE
+    ]
+    for item in items:
+        store.resolve(
+            item.id,
+            "auto_purged",
+            "people redesign — proactive surface retired",
+        )
+    console.print(
+        f"[green]Purged {len(items)} pending PERSON_UPDATE items.[/green]"
+    )
+
+
 if __name__ == "__main__":
     app()

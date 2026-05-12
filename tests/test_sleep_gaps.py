@@ -1,4 +1,4 @@
-"""Tests for sleep gap-fill (sender frequency surfacing)."""
+"""Tests for the sleep earned-promotions sweep."""
 
 from yeti.sleep import gaps
 
@@ -25,38 +25,6 @@ def test_extract_sender_quoted_name():
     assert email == "daniel.costa@coneticgroup.com"
 
 
-def test_build_person_update_item_carries_metadata():
-    item = gaps._build_person_update_for_gap(
-        {
-            "email": "alice@example.com",
-            "name": "Alice Johnson",
-            "count": 7,
-            "last_seen": "2026-04-25",
-        }
-    )
-    assert item.title.startswith("Who is 'Alice Johnson'")
-    assert "7 emails" in item.summary
-    assert item.payload["email"] == "alice@example.com"
-    assert item.payload["source"] == "sleep-gaps"
-    # Schema prefilled with the candidate name
-    name_field = next(
-        s for s in item.answer_schema if s["key"] == "full_name"
-    )
-    assert name_field["value"] == "Alice Johnson"
-
-
-def test_build_person_update_item_no_name_uses_email():
-    item = gaps._build_person_update_for_gap(
-        {
-            "email": "noname@example.com",
-            "name": "",
-            "count": 4,
-            "last_seen": "2026-04-25",
-        }
-    )
-    assert "noname@example.com" in item.title
-
-
 def test_pick_canonical_prefers_longer_spelling():
     assert (
         gaps._pick_canonical(["1o1media", "1o1 Media", "1o1media"])
@@ -67,39 +35,6 @@ def test_pick_canonical_prefers_longer_spelling():
 def test_pick_canonical_empty():
     assert gaps._pick_canonical([]) == ""
     assert gaps._pick_canonical(["", "  "]) == ""
-
-
-def test_build_person_update_item_with_prefill():
-    item = gaps._build_person_update_for_gap(
-        {
-            "email": "max.keil@1o1media.com",
-            "name": "Max Keil",
-            "count": 5,
-            "last_seen": "2026-04-25",
-        },
-        prefill={
-            "role": "CTO",
-            "company": "1o1 Media",
-            "notes": "- involved_in: American Airlines Project",
-        },
-    )
-    by_key = {s["key"]: s for s in item.answer_schema}
-    assert by_key["role"]["value"] == "CTO"
-    assert by_key["company"]["value"] == "1o1 Media"
-    assert "American Airlines" in by_key["context"]["value"]
-    assert item.payload["kg_prefilled"] is True
-
-
-def test_build_person_update_item_no_prefill_marks_flag_false():
-    item = gaps._build_person_update_for_gap(
-        {
-            "email": "alice@example.com",
-            "name": "Alice Johnson",
-            "count": 3,
-            "last_seen": "2026-04-25",
-        }
-    )
-    assert item.payload["kg_prefilled"] is False
 
 
 def test_build_auto_drawer_renders_template():
@@ -119,7 +54,7 @@ def test_build_auto_drawer_renders_template():
     assert "Role: CTO" in text
     assert "Company: 1o1 Media" in text
     assert "American Airlines" in text
-    assert "Source: sleep-gaps auto-promotion" in text
+    assert "Source: sleep earned-promotion" in text
 
 
 def test_build_auto_drawer_synthesises_name_from_email():
@@ -128,3 +63,24 @@ def test_build_auto_drawer_synthesises_name_from_email():
         {"role": "PM", "company": "", "notes": ""},
     )
     assert text.startswith("# Jane Doe")
+
+
+def test_store_succeeded_requires_success_and_id():
+    assert gaps._store_succeeded(
+        {"success": True, "drawer_id": "drawer_x"}
+    )
+
+
+def test_store_succeeded_rejects_no_drawer_id():
+    assert not gaps._store_succeeded({"success": True})
+
+
+def test_store_succeeded_rejects_explicit_failure():
+    assert not gaps._store_succeeded(
+        {"success": False, "error": "boom"}
+    )
+
+
+def test_store_succeeded_rejects_non_dict():
+    assert not gaps._store_succeeded(None)
+    assert not gaps._store_succeeded("ok")

@@ -374,14 +374,6 @@ async def nav_counts_partial():
     except Exception:
         pass
 
-    people_count = 0
-    try:
-        from yeti.sleep.gaps import find_gap_senders
-
-        people_count = len(find_gap_senders())
-    except Exception:
-        pass
-
     def _badge(slot: str, count: int) -> str:
         cls = "nav-count has-items" if count > 0 else "nav-count"
         body = str(count) if count > 0 else ""
@@ -390,10 +382,8 @@ async def nav_counts_partial():
             f'hx-swap-oob="outerHTML">{body}</span>'
         )
 
-    return (
-        _badge("inbox", inbox_count)
-        + _badge("tasks", tasks_count)
-        + _badge("people", people_count)
+    return _badge("inbox", inbox_count) + _badge(
+        "tasks", tasks_count
     )
 
 
@@ -1236,64 +1226,6 @@ def _escape(s: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
-
-
-@router.get(
-    "/partials/people-needs-profile",
-    response_class=HTMLResponse,
-)
-async def people_needs_profile_partial():
-    """High-mention senders with no contact drawer."""
-    try:
-        from yeti.sleep.gaps import find_gap_senders
-
-        gaps = find_gap_senders()
-    except Exception:
-        return (
-            '<div class="muted">'
-            "Could not load (worker / db unavailable)."
-            "</div>"
-        )
-
-    if not gaps:
-        return (
-            '<div class="muted" style="font-size:0.85rem">'
-            "No unknown frequent contacts."
-            "</div>"
-        )
-
-    rows = []
-    for g in gaps:
-        name = g.get("name") or ""
-        email = g.get("email") or ""
-        count = int(g.get("count") or 0)
-        display = name or email
-        last = (g.get("last_seen") or "")[:10]
-        meta = (
-            f"{count} email{'s' if count != 1 else ''}"
-            + (f" · last {last}" if last else "")
-        )
-        rows.append(
-            f'<div class="status-row" '
-            f'data-gap-email="{_escape(email)}">'
-            f'<span style="flex:1;min-width:0">'
-            f'<strong>{_escape(display)}</strong>'
-            f'<div class="muted" '
-            f'style="font-size:0.75rem">'
-            f"{_escape(email)} · {meta}</div>"
-            f"</span>"
-            f'<span class="btn-row">'
-            f'<button class="btn btn-primary btn-sm" '
-            f"onclick=\"askYetiAbout("
-            f"'{_escape(name)}','{_escape(email)}',{count})\">"
-            f"Add profile via chat</button>"
-            f'<button class="btn btn-ghost btn-sm" '
-            f"onclick=\"ignoreSender(this,'{_escape(email)}')\">"
-            f"Ignore (system)</button>"
-            f"</span>"
-            f"</div>"
-        )
-    return "\n".join(rows)
 
 
 def _list_contact_drawers(

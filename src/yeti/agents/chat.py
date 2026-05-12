@@ -542,6 +542,30 @@ async def _save_person_profile(args: dict) -> dict:
         source="chat",
     )
 
+    saved = bool(
+        isinstance(store_result, dict)
+        and store_result.get("success") is True
+        and store_result.get("drawer_id")
+    )
+    if not saved:
+        logger.warning(
+            "save_person_profile: MemPalace did not confirm "
+            "success for %s: %s",
+            full_name,
+            store_result,
+        )
+        return {
+            "saved": False,
+            "wing": "people",
+            "room": "contacts",
+            "drawer": store_result,
+            "error": (
+                "MemPalace did not confirm the drawer was "
+                "stored — report this to Daniel instead of "
+                "claiming success."
+            ),
+        }
+
     kg_added: list[dict] = []
     if role:
         try:

@@ -465,7 +465,7 @@ def sleep_deterministic():
     writes to an audit trail — safe to re-run on demand.
     """
     from yeti.sleep.dedupe import run_dedupe
-    from yeti.sleep.gaps import run_gap_fill
+    from yeti.sleep.gaps import run_earned_promotions
     from yeti.sleep.reconcile import run_reconcile
     from yeti.sleep.stale_persons import run_stale_persons_sweep
 
@@ -488,10 +488,10 @@ def sleep_deterministic():
         logger.exception("Sleep stale-persons failed")
 
     try:
-        result = _run_async(run_gap_fill())
-        logger.info("Sleep gap-fill done: %s", result)
+        result = _run_async(run_earned_promotions())
+        logger.info("Sleep earned-promotions done: %s", result)
     except Exception:
-        logger.exception("Sleep gap-fill failed")
+        logger.exception("Sleep earned-promotions failed")
 
 
 @celery_app.task

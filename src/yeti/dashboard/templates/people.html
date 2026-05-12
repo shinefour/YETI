@@ -5,20 +5,6 @@
 <h1>People</h1>
 
 <div class="card">
-  <h2>Needs profile</h2>
-  <p class="muted" style="font-size:0.8rem;margin-bottom:0.75rem">
-    High-frequency senders YETI has no contact drawer for. Seeding a
-    profile stops triage from re-asking "who is this?" on every email.
-  </p>
-  <div id="people-gaps"
-       hx-get="/dashboard/partials/people-needs-profile"
-       hx-trigger="load, every 60s"
-       hx-swap="innerHTML">
-    <div class="muted">Loading...</div>
-  </div>
-</div>
-
-<div class="card">
   <h2>Known contacts</h2>
   <input type="text" id="people-search"
          placeholder="Search by name, email, company..."
@@ -55,45 +41,6 @@
 </div>
 
 <script>
-window.ignoreSender = async function(btn, email) {
-    if (!email) return;
-    const ok = window.confirm(
-        'Mark "' + email + '" as automated/system? Future emails ' +
-        'from this sender will be filtered and it will not appear ' +
-        'in Needs Profile again.'
-    );
-    if (!ok) return;
-    const row = btn && btn.closest
-        ? btn.closest('.status-row')
-        : document.querySelector(
-            '[data-gap-email="' + email + '"]'
-        );
-    if (row) row.remove();
-    const r = await fetch('/dashboard/api/email-blacklist', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        credentials: 'include',
-        body: JSON.stringify({
-            pattern: email,
-            reason: 'automated/system (marked from People page)'
-        })
-    });
-    const gaps = document.getElementById('people-gaps');
-    if (!r.ok) {
-        let detail = r.status;
-        try {
-            const j = await r.json();
-            detail = j.error || detail;
-        } catch (e) { /* ignore */ }
-        alert('Failed: ' + detail);
-        if (window.htmx && gaps) htmx.trigger(gaps, 'load');
-        return;
-    }
-    if (window.htmx && gaps) {
-        htmx.trigger(gaps, 'load');
-    }
-};
-
 window.askYetiAbout = function(name, email, count) {
     const input = document.querySelector(
         '.global-chat-input input[name="message"]'
