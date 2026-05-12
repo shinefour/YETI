@@ -268,12 +268,9 @@ def _extract_body(payload: dict) -> str:
             html = base64.urlsafe_b64decode(
                 body_data + "=" * (4 - len(body_data) % 4)
             ).decode("utf-8", errors="replace")
-            # Strip basic HTML
-            import re
+            from yeti.integrations.email_body import html_to_text
 
-            text = re.sub(r"<[^>]+>", " ", html)
-            text = re.sub(r"\s+", " ", text)
-            return text.strip()
+            return html_to_text(html)
         except Exception:
             return ""
 

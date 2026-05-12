@@ -862,6 +862,13 @@ def _render_source_note(item) -> str:
         else ([], note.content or "")
     )
 
+    # Decode HTML entities left in legacy notes (`&gt;`, `&nbsp;`, ...)
+    # before we re-escape for safe rendering.
+    headers = [
+        (k, _html.unescape(v)) for k, v in headers
+    ]
+    body_text = _html.unescape(body_text)
+
     headers_html = ""
     if headers:
         rows = "".join(

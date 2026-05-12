@@ -357,7 +357,6 @@ def _extract_body(body: dict) -> str:
         return ""
     if ctype == "text":
         return content
-    # HTML fallback — same stripper style as Gmail adapter.
-    text = re.sub(r"<[^>]+>", " ", content)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    from yeti.integrations.email_body import html_to_text
+
+    return html_to_text(content)
