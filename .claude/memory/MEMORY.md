@@ -10,3 +10,4 @@
 - [Be opinionated](feedback_be_opinionated.md) — Critique Daniel's design proposals from consumer's perspective before drafting plans.
 - [Memory philosophy](project_memory_philosophy.md) — MemPalace = curated memory like a person, not a dump. Sleep-style consolidation is design intent.
 - [Maturation pipeline](project_maturation_pipeline.md) — Classify → triage → sleep → prefill flow. Wing/room conventions, source tags, API additions, deferred items, ops gotchas.
+- [People pipeline](project_people_pipeline.md) — No proactive "Needs profile" queue. Silent earned-promotion in sleep + chat-driven on-demand only.
