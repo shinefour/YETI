@@ -992,11 +992,21 @@ def _render_schema_form(item) -> tuple[str, str]:
                 f"onclick=\"pickChoice(this)\">{opt}</button>"
                 for opt in options
             )
+            custom_id = f"{input_id}-custom"
             input_html = (
                 f'<input type="hidden" id="{input_id}" '
                 f'data-key="{key}" value="{value}"/>'
-                f'<div class="btn-row" style="margin-bottom:0.75rem">'
+                f'<div class="btn-row" style="margin-bottom:0.5rem">'
                 f"{choices}</div>"
+                f'<input type="text" id="{custom_id}" '
+                f'data-key="{key}" '
+                f'placeholder="Or type your own answer…" '
+                f'style="width:100%;padding:0.45rem 0.6rem;'
+                f"background:var(--bg);"
+                f"border:1px solid var(--border);"
+                f"border-radius:4px;color:var(--text);"
+                f"font-size:0.8rem;font-family:inherit;"
+                f'outline:none;margin-bottom:0.75rem"/>'
             )
         elif ftype == "textarea":
             input_html = (
@@ -1026,13 +1036,6 @@ def _render_schema_form(item) -> tuple[str, str]:
             f'<div>{label_html}{input_html}</div>'
         )
 
-    body = f"""
-    {note_link}
-    <form id="answer-form-{item.id}" onsubmit="return false">
-      {''.join(field_html)}
-    </form>
-    """
-
     # Build actions — proposed actions get a different submit handler
     from yeti.models.inbox import InboxType
 
@@ -1049,6 +1052,16 @@ def _render_schema_form(item) -> tuple[str, str]:
         if is_proposed_action
         else "submitAnswer"
     )
+
+    body = f"""
+    {note_link}
+    <form id="answer-form-{item.id}" onsubmit="return false"
+          data-item-id="{item.id}"
+          data-submit-handler="{submit_handler}"
+          onkeydown="handleInboxKeydown(event)">
+      {''.join(field_html)}
+    </form>
+    """
     submit_btn = (
         f'<button type="button" class="btn btn-primary" '
         f"onclick=\"{submit_handler}('{item.id}')\">"
@@ -1083,6 +1096,16 @@ def _render_schema_form(item) -> tuple[str, str]:
       siblings.forEach(s => s.classList.add('btn-ghost'));
       btn.classList.remove('btn-ghost');
       btn.classList.add('btn-primary');
+    }
+    function handleInboxKeydown(e) {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter') return;
+      const form = e.currentTarget;
+      const itemId = form.dataset.itemId;
+      const handler = form.dataset.submitHandler;
+      if (!itemId || !handler) return;
+      e.preventDefault();
+      const fn = window[handler];
+      if (typeof fn === 'function') fn(itemId);
     }
     function setBusy(buttonsParent, busy, label) {
       const status = document.getElementById('inbox-status');
