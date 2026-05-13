@@ -146,6 +146,24 @@ class MemPalaceClient:
         self._request_id = 0
         self._initialized = False
         self._lock = asyncio.Lock()
+        self._stderr_task: asyncio.Task | None = None
+
+    async def _drain_stderr(
+        self, stream: asyncio.StreamReader
+    ) -> None:
+        """Forward MemPalace subprocess stderr to YETI logs."""
+        while True:
+            try:
+                line = await stream.readline()
+            except Exception:
+                logger.exception("MemPalace stderr read failed")
+                return
+            if not line:
+                return
+            logger.warning(
+                "MemPalace stderr: %s",
+                line.decode(errors="replace").rstrip(),
+            )
 
     async def _ensure_running(self):
         """Start the MCP server subprocess and complete the handshake."""
@@ -170,6 +188,11 @@ class MemPalaceClient:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
+
+        if self._process.stderr is not None:
+            self._stderr_task = asyncio.create_task(
+                self._drain_stderr(self._process.stderr)
+            )
 
         # MCP handshake: initialize -> notifications/initialized
         self._request_id += 1

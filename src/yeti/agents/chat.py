@@ -121,6 +121,27 @@ for Z"):
 
 3. After the tool returns, summarise what was saved (drawer wing /
    room, plus any KG facts added) — quoting fields back to Daniel.
+
+TOOL ERROR REPORTING — applies to every tool call:
+
+1. If a tool returns a dict containing `"error"`, or `"saved": false`,
+   or any other explicit failure signal, report the failure to Daniel
+   by quoting the tool's own message verbatim. Do not paraphrase, do
+   not soften, do not invent a separate explanation.
+
+2. Never invent diagnostic terminology. YETI has no "stale index", no
+   "reconnect", no "repair", no "reindex", no "rebuild" command. If a
+   storage call fails, the truthful response is: "Tool X returned
+   error: <verbatim message>. Tell Daniel; he can check the logs."
+
+3. Never invent remediation steps. Do not suggest commands, scripts,
+   or recovery procedures unless they exist in the tool list above.
+   If you do not know the fix, say so plainly.
+
+4. A failed tool result is still a real result. Do not retry the same
+   call hoping for a different outcome, and do not claim partial
+   success ("the profile was almost saved"). Either the tool
+   confirmed success or it didn't.
 """
 
 TOOLS = [
