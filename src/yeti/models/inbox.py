@@ -227,6 +227,68 @@ class InboxStore:
             ).fetchall()
         return [self._row_to_item(r) for r in rows]
 
+    def pending_grouped_by_source_note(
+        self,
+    ) -> list[tuple[str, list[InboxItem]]]:
+        """Pending items grouped by source_note_id.
+
+        Groups ordered by oldest item per group. Items with no
+        source_note_id collected under "" and placed last.
+        """
+        items = self.list_pending()
+        groups: dict[str, list[InboxItem]] = {}
+        for it in items:
+            key = it.source_note_id or ""
+            groups.setdefault(key, []).append(it)
+        real = [(k, v) for k, v in groups.items() if k]
+        real.sort(key=lambda kv: kv[1][0].created_at)
+        other = groups.get("", [])
+        if other:
+            real.append(("", other))
+        return real
+
+    def bulk_skip_by_source(
+        self, source_note_id: str, reason: str = "skipped"
+    ) -> int:
+        """Resolve all PENDING items in a source-note group as skipped.
+
+        Pass empty string for the synthetic "Other" group (no source).
+        Returns count of items skipped.
+        """
+        now = datetime.now(UTC).isoformat()
+        if source_note_id:
+            where = "source_note_id = ?"
+            params: tuple = (source_note_id,)
+        else:
+            where = "(source_note_id IS NULL OR source_note_id = '')"
+            params = ()
+        with self._conn() as conn:
+            cur = conn.execute(
+                f"SELECT id FROM inbox "
+                f"WHERE status = 'pending' AND {where}",
+                params,
+            )
+            ids = [r["id"] for r in cur.fetchall()]
+            for iid in ids:
+                conn.execute(
+                    """
+                    UPDATE inbox
+                    SET status = 'resolved',
+                        resolved_at = ?,
+                        resolution = 'skipped',
+                        resolution_note = ?
+                    WHERE id = ?
+                    """,
+                    (now, reason, iid),
+                )
+        for iid in ids:
+            self._audit(
+                iid,
+                "resolved",
+                {"resolution": "skipped", "bulk": True},
+            )
+        return len(ids)
+
     def has_pending_for_person(
         self, item_type: InboxType, mentioned_as: str, wing: str
     ) -> bool:

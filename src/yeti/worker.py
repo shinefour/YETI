@@ -113,6 +113,19 @@ async def _morning_briefing_async():
         for item in blocked[:5]:
             lines.append(f"  - {item.title}")
 
+    waiting = store.list_waiting()
+    today = datetime.now(UTC).date().isoformat()
+    due_waiting = [
+        w for w in waiting if w.due_date and w.due_date <= today
+    ]
+    if due_waiting:
+        lines.append(
+            f"\n*Nudge — heard back?* {len(due_waiting)}"
+        )
+        for w in due_waiting[:5]:
+            who = f" ({w.assignee})" if w.assignee else ""
+            lines.append(f"  - {w.title}{who}")
+
     # Jira updates
     if settings.jira_url and settings.jira_api_token:
         try:
@@ -129,7 +142,12 @@ async def _morning_briefing_async():
         except Exception:
             logger.exception("Jira pull failed in briefing")
 
-    if not blocked and not active and not inbox_count:
+    if (
+        not blocked
+        and not active
+        and not inbox_count
+        and not due_waiting
+    ):
         lines.append("No tasks. Clean slate.")
 
     await _send_telegram("\n".join(lines))

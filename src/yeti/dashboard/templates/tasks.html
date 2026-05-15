@@ -4,6 +4,16 @@
 <div class="page-content">
 <h1>Tasks</h1>
 
+<div class="card">
+    <h2>Waiting on</h2>
+    <div id="waiting-list"
+         hx-get="/dashboard/partials/waiting-tasks"
+         hx-trigger="load, every 60s, refresh from:body"
+         hx-swap="innerHTML">
+        <div class="muted">Loading...</div>
+    </div>
+</div>
+
 <div class="card"
      id="tasks-list"
      hx-get="/dashboard/partials/tasks-flat"

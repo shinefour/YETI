@@ -336,6 +336,59 @@ async def approve_task(item_id: str, body: dict):
     return {"task": task.model_dump()}
 
 
+@router.post("/group/{source_note_id}/skip")
+async def skip_group(source_note_id: str, body: dict | None = None):
+    """Bulk-resolve all PENDING items for one source note as skipped.
+
+    Pass `_other` as source_note_id for the synthetic group of items
+    with no source note. Irreversible.
+    """
+    reason = ""
+    if body:
+        reason = body.get("reason", "") or ""
+    key = "" if source_note_id == "_other" else source_note_id
+    skipped = store.bulk_skip_by_source(key, reason or "skipped")
+    return {"skipped": skipped}
+
+
+@router.post("/{item_id}/follow-up")
+async def follow_up(item_id: str, body: dict):
+    """Convert a PROPOSED_ACTION into a WAITING task with a nudge date."""
+    from yeti.models.tasks import Task, TaskStatus, TaskStore
+
+    item = store.get(item_id)
+    if not item:
+        return JSONResponse(
+            {"error": "Not found"}, status_code=404
+        )
+
+    nudge_date = (body.get("nudge_date") or "").strip()
+    if not nudge_date:
+        return JSONResponse(
+            {"error": "nudge_date required"}, status_code=400
+        )
+    assignee = (body.get("assignee") or "").strip()
+    note = (body.get("note") or "").strip()
+    title = (body.get("title") or item.title).strip()
+
+    task_store = TaskStore()
+    task = task_store.create(
+        Task(
+            title=title,
+            assignee=assignee,
+            due_date=nudge_date,
+            context=item.summary,
+            nudge_note=note,
+            source=f"inbox:{item_id}",
+            status=TaskStatus.WAITING,
+        )
+    )
+
+    store.resolve(item_id, "follow_up", note=task.id)
+
+    return {"task": task.model_dump()}
+
+
 @router.get("/{item_id}/audit")
 async def item_audit(item_id: str):
     entries = store.audit_log(item_id=item_id)

@@ -10,43 +10,173 @@
      hx-swap="innerHTML">
   <div class="card"><div class="muted">Loading...</div></div>
 </div>
+<div id="inbox-status" class="muted"
+     style="font-size:0.8rem;margin-top:0.5rem;
+            min-height:1.2rem;text-align:center"></div>
 </div>
 
 <script>
-// Track whether a clear-and-refresh is in progress so the edit
-// guard doesn't block it.
 window._yetiClearing = false;
 
 window.clearAndRefresh = function() {
     const root = document.getElementById('inbox-active');
-    // Wipe inputs first so the edit guard won't block the reload
-    root.querySelectorAll(
-        'input[type="text"], textarea, input[type="hidden"]'
-    ).forEach(el => { el.value = ''; });
     window._yetiClearing = true;
-    if (window.htmx) {
-        htmx.trigger(root, 'refresh');
-    } else {
-        root.dispatchEvent(new Event('refresh'));
-    }
+    if (window.htmx) htmx.trigger(root, 'refresh');
+    else root.dispatchEvent(new Event('refresh'));
     setTimeout(() => { window._yetiClearing = false; }, 1000);
 };
 
-window.toggleAutoApply = async function(patternKey, enabled) {
-    const r = await fetch('/api/inbox/patterns/auto-apply', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        credentials: 'include',
-        body: JSON.stringify({
-            pattern_key: patternKey,
-            auto_apply: enabled
-        })
+function setStatus(msg) {
+    const s = document.getElementById('inbox-status');
+    if (s) s.textContent = msg || '';
+}
+
+window.setBusy = function(_unused, busy, label) {
+    setStatus(label || '');
+    document.querySelectorAll(
+        '#inbox-active button'
+    ).forEach(b => {
+        b.disabled = busy;
+        b.style.opacity = busy ? '0.5' : '';
+        b.style.pointerEvents = busy ? 'none' : '';
     });
-    if (!r.ok) {
-        console.error('Failed to toggle pattern:', r.status);
+};
+
+window.removeInboxItem = function(itemId) {
+    const block = document.getElementById('inbox-item-' + itemId);
+    if (!block) { window.clearAndRefresh(); return; }
+    const group = block.closest('.inbox-group');
+    block.remove();
+    if (group) {
+        const remaining = group.querySelectorAll(
+            '.inbox-item-block'
+        ).length;
+        if (remaining === 0) {
+            group.remove();
+        } else {
+            group.dataset.itemCount = remaining;
+            const btn = group.querySelector(
+                'button[onclick^="moveOnGroup"]'
+            );
+            if (btn) {
+                const token = group.id.replace(/^inbox-group-/, '');
+                btn.setAttribute(
+                    'onclick',
+                    "moveOnGroup('" + token + "', " + remaining + ")"
+                );
+                btn.textContent =
+                    'Move on — skip remaining (' + remaining + ')';
+            }
+        }
+    }
+    if (!document.querySelector('#inbox-active .inbox-group')) {
+        window.clearAndRefresh();
+    }
+};
+
+window.pickChoice = function(btn) {
+    const input = document.getElementById(btn.dataset.input);
+    input.value = btn.dataset.value;
+    const siblings = btn.parentElement.querySelectorAll('.choice-btn');
+    siblings.forEach(s => {
+        s.classList.remove('btn-primary');
+        s.classList.add('btn-ghost');
+    });
+    btn.classList.remove('btn-ghost');
+    btn.classList.add('btn-primary');
+};
+
+window.handleInboxKeydown = function(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter') return;
+    const form = e.currentTarget;
+    const itemId = form.dataset.itemId;
+    const handler = form.dataset.submitHandler;
+    if (!itemId || !handler) return;
+    e.preventDefault();
+    const fn = window[handler];
+    if (typeof fn === 'function') fn(itemId);
+};
+
+function _collectAnswer(itemId) {
+    const form = document.getElementById('answer-form-' + itemId);
+    const inputs = form.querySelectorAll('[data-key]');
+    const answer = {};
+    inputs.forEach(el => {
+        if (el.value) answer[el.dataset.key] = el.value;
+    });
+    return answer;
+}
+
+window.submitAnswer = async function(itemId) {
+    const answer = _collectAnswer(itemId);
+    setBusy(null, true, 'Sending answer...');
+    try {
+        const r = await fetch('/api/inbox/' + itemId + '/answer', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({answer: answer})
+        });
+        if (r.ok) {
+            const data = await r.json();
+            setBusy(null, false,
+                'Saved (' + data.facts_applied + ' facts)');
+            removeInboxItem(itemId);
+        } else {
+            setBusy(null, false, 'Failed to send answer');
+        }
+    } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
+    }
+};
+
+window.submitProposedTask = async function(itemId) {
+    const answer = _collectAnswer(itemId);
+    if (!answer.title) {
+        setBusy(null, false, 'Title required');
         return;
     }
-    window.clearAndRefresh();
+    setBusy(null, true, 'Creating task...');
+    try {
+        const r = await fetch(
+            '/api/inbox/' + itemId + '/approve-task', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({answer: answer})
+        });
+        if (r.ok) {
+            setBusy(null, false, 'Task created');
+            removeInboxItem(itemId);
+        } else {
+            setBusy(null, false, 'Failed to create task');
+        }
+    } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
+    }
+};
+
+window.convertToTask = async function(itemId, defaultTitle) {
+    const title = prompt('Task title:', defaultTitle);
+    if (!title) return;
+    setBusy(null, true, 'Converting to task...');
+    try {
+        const r = await fetch(
+            '/api/inbox/' + itemId + '/convert-to-task', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({title: title})
+        });
+        if (r.ok) {
+            setBusy(null, false, 'Task created');
+            removeInboxItem(itemId);
+        } else {
+            setBusy(null, false, 'Failed');
+        }
+    } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
+    }
 };
 
 window.resolveInboxItem = async function(itemId, resolution) {
@@ -57,41 +187,101 @@ window.resolveInboxItem = async function(itemId, resolution) {
             credentials: 'include',
             body: JSON.stringify({resolution: resolution})
         });
-        if (r.ok) {
-            window.clearAndRefresh();
-        } else {
-            console.error('Failed to resolve item:', r.status);
-        }
+        if (r.ok) removeInboxItem(itemId);
+        else setStatus('Failed to resolve item');
     } catch(e) {
-        console.error('Error resolving item:', e);
+        setStatus('Error: ' + e.message);
     }
 };
 
-// Edit guard: skip refresh if user has unsaved input.
-// Only blocks the auto-refresh GET on the container itself —
-// button-initiated POST/PATCH from children always go through.
-(function() {
-    const target = document.getElementById('inbox-active');
-
-    function isUserEditing() {
-        if (window._yetiClearing) return false;
-        const inputs = target.querySelectorAll(
-            'input[type="text"], textarea'
-        );
-        for (const el of inputs) {
-            if (document.activeElement === el) return true;
-            if (el.value && el.value.trim()) return true;
-        }
-        return false;
-    }
-
-    target.addEventListener('htmx:beforeRequest', (evt) => {
-        // Only intercept the auto-refresh of the container itself
-        if (evt.target !== target) return;
-        if (isUserEditing()) {
-            evt.preventDefault();
-        }
+window.toggleAutoApply = async function(patternKey, enabled) {
+    const r = await fetch('/api/inbox/patterns/auto-apply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({
+            pattern_key: patternKey, auto_apply: enabled
+        })
     });
-})();
+    if (!r.ok) { setStatus('Failed to toggle pattern'); return; }
+    window.clearAndRefresh();
+};
+
+window.toggleFollowUp = function(itemId) {
+    const f = document.getElementById('followup-form-' + itemId);
+    if (!f) return;
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+};
+
+window.setFollowUpDate = function(itemId, daysAhead) {
+    const d = new Date();
+    d.setDate(d.getDate() + daysAhead);
+    const iso = d.toISOString().slice(0, 10);
+    const input = document.getElementById('followup-date-' + itemId);
+    if (input) input.value = iso;
+};
+
+window.submitFollowUp = async function(itemId) {
+    const date = document.getElementById(
+        'followup-date-' + itemId).value;
+    if (!date) { setStatus('Pick a nudge date'); return; }
+    const assignee = document.getElementById(
+        'followup-assignee-' + itemId).value;
+    const note = document.getElementById(
+        'followup-note-' + itemId).value;
+    setBusy(null, true, 'Saving follow-up...');
+    try {
+        const r = await fetch(
+            '/api/inbox/' + itemId + '/follow-up', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({
+                nudge_date: date, assignee: assignee, note: note
+            })
+        });
+        if (r.ok) {
+            setBusy(null, false, 'Waiting on ' + date);
+            removeInboxItem(itemId);
+        } else {
+            setBusy(null, false, 'Failed to save follow-up');
+        }
+    } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
+    }
+};
+
+window.moveOnGroup = async function(groupToken, count) {
+    if (!confirm(
+        'Skip ' + count + ' remaining item(s) from this source? '
+        + 'This cannot be undone.'
+    )) return;
+    setBusy(null, true, 'Skipping ' + count + ' items...');
+    try {
+        const r = await fetch(
+            '/api/inbox/group/' + groupToken + '/skip', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify({reason: 'skipped'})
+        });
+        if (r.ok) {
+            const data = await r.json();
+            setBusy(null, false,
+                'Skipped ' + data.skipped + ' items');
+            const card = document.getElementById(
+                'inbox-group-' + groupToken);
+            if (card) card.remove();
+            if (!document.querySelector(
+                '#inbox-active .inbox-group')) {
+                window.clearAndRefresh();
+            }
+        } else {
+            setBusy(null, false, 'Failed to skip');
+        }
+    } catch(e) {
+        setBusy(null, false, 'Error: ' + e.message);
+    }
+};
 </script>
 {% endblock %}

@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
@@ -647,6 +648,69 @@ async def tasks_flat_partial():
 
 
 @router.get(
+    "/partials/waiting-tasks", response_class=HTMLResponse
+)
+async def waiting_tasks_partial():
+    """Tasks in WAITING state — passive nudge surface."""
+    store = TaskStore()
+    items = store.list_waiting()
+
+    if not items:
+        return (
+            '<div class="muted">'
+            "Nothing on the back burner."
+            "</div>"
+        )
+
+    import html as _html
+
+    today = datetime.now(UTC).date().isoformat()
+    rows = []
+    for t in items:
+        due = (t.due_date or "").strip()
+        due_color = "var(--text-dim)"
+        due_label = "no date"
+        if due:
+            due_label = due
+            due_color = (
+                "var(--red)"
+                if due <= today
+                else "var(--text-soft)"
+            )
+        assignee_tag = (
+            f' <span class="badge badge-dim">'
+            f"{_html.escape(t.assignee)}</span>"
+            if t.assignee
+            else ""
+        )
+        note_html = (
+            f'<div class="muted" style="font-size:0.75rem;'
+            f'margin-top:0.15rem">{_html.escape(t.nudge_note)}</div>'
+            if t.nudge_note
+            else ""
+        )
+        actions = (
+            f'<button class="btn btn-ghost btn-sm" '
+            f"onclick=\"markTaskActive('{t.id}')\">Resume</button>"
+            f'<button class="btn btn-success btn-sm" '
+            f"onclick=\"markTaskDone('{t.id}')\">Done</button>"
+            f'<button class="btn btn-ghost btn-sm" '
+            f"onclick=\"markTaskCancelled('{t.id}')\">Drop</button>"
+        )
+        rows.append(
+            f'<div class="status-row">'
+            f'<span style="flex:0 0 90px;color:{due_color};'
+            f'font-size:0.8rem">{due_label}</span>'
+            f'<span style="flex:1">{_html.escape(t.title)}'
+            f"{assignee_tag}{note_html}</span>"
+            f'<span class="btn-row">{actions}</span>'
+            f"</div>"
+        )
+
+    return "\n".join(rows)
+
+
+@router.get(
     "/partials/inbox-tile", response_class=HTMLResponse
 )
 async def inbox_tile_partial():
@@ -693,49 +757,72 @@ async def inbox_tile_partial():
     "/partials/inbox-active", response_class=HTMLResponse
 )
 async def inbox_active_partial():
-    """Active item view + upcoming list for the inbox page."""
+    """Render pending inbox items grouped by source note."""
     store = InboxStore()
-    items = store.list_pending()
+    groups = store.pending_grouped_by_source_note()
 
-    if not items:
+    if not groups:
         return (
             '<div class="card"><h2>Inbox</h2>'
             '<p class="muted">All clear. Nothing pending.</p>'
             "</div>"
         )
 
-    active = items[0]
-    upcoming_html = ""
-    if len(items) > 1:
-        upcoming_items = "".join(
-            f'<li>{i.title} <span class="muted">'
-            f'({i.type.value})</span></li>'
-            for i in items[1:]
-        )
-        upcoming_html = (
-            f'<div class="card"><h2>Up next ({len(items) - 1})</h2>'
-            f'<ul class="inbox-upcoming">{upcoming_items}</ul>'
+    cards = [_render_inbox_group(src_id, items) for src_id, items in groups]
+    return "\n".join(cards)
+
+
+def _render_inbox_group(source_note_id: str, items: list) -> str:
+    """One card per source note: header (source) + per-item blocks."""
+    if source_note_id:
+        header = _render_source_note(items[0])
+        group_token = source_note_id
+    else:
+        header = (
+            '<div class="card"><h2>Other</h2>'
+            '<p class="muted">Items with no linked source note.</p>'
             "</div>"
         )
+        group_token = "_other"
 
-    body_html, actions_html = _render_inbox_body(active)
-    source_html = _render_source_note(active)
-    suggestion_html = _render_suggestion(active)
+    item_blocks = "".join(_render_item_block(it) for it in items)
+    move_on = (
+        f'<div class="card" style="text-align:right;'
+        f'padding:0.5rem 0.75rem">'
+        f'<button type="button" class="btn btn-ghost" '
+        f"onclick=\"moveOnGroup('{group_token}', {len(items)})\">"
+        f"Move on — skip remaining ({len(items)})</button>"
+        f"</div>"
+    )
 
+    return (
+        f'<div id="inbox-group-{group_token}" class="inbox-group" '
+        f'data-item-count="{len(items)}">'
+        f"{header}{item_blocks}{move_on}"
+        f"</div>"
+    )
+
+
+def _render_item_block(item) -> str:
+    """One inbox item rendered as its own swappable card."""
+    body_html, actions_html = _render_inbox_body(item)
+    suggestion_html = _render_suggestion(item)
+    type_label = item.type.value.replace("_", " ").title()
     return f"""
-    <div class="card">
-      <h2>{active.type.value.replace('_', ' ').title()}</h2>
-      <h3 style="margin:0.5rem 0">{active.title}</h3>
-      <p class="muted">{active.summary}</p>
+    <div id="inbox-item-{item.id}" class="card inbox-item-block">
+      <div class="muted" style="font-size:0.75rem;
+           text-transform:uppercase;letter-spacing:0.05em">
+        {type_label}
+      </div>
+      <h3 style="margin:0.25rem 0 0.5rem">{item.title}</h3>
+      <p class="muted">{item.summary}</p>
       {suggestion_html}
       {body_html}
-      <div style="margin-top:1.5rem;display:flex;gap:0.5rem;
+      <div style="margin-top:1rem;display:flex;gap:0.5rem;
                   flex-wrap:wrap">
         {actions_html}
       </div>
     </div>
-    {source_html}
-    {upcoming_html}
     """
 
 
@@ -1069,11 +1156,17 @@ def _render_schema_form(item) -> tuple[str, str]:
     )
 
     quick_action_buttons = []
+    if is_proposed_action:
+        quick_action_buttons.append(
+            f'<button type="button" class="btn btn-ghost" '
+            f"onclick=\"toggleFollowUp('{item.id}')\">"
+            f"Follow-up</button>"
+        )
     if "convert_to_task" in quick_actions:
         quick_action_buttons.append(
             f'<button type="button" class="btn btn-ghost" '
             f"onclick=\"convertToTask('{item.id}', "
-            f"'{_escape(item.title)}')\">Convert to task</button>"
+            f"'{_js_escape(item.title)}')\">Convert to task</button>"
         )
     if "discard" in quick_actions:
         quick_action_buttons.append(
@@ -1082,130 +1175,60 @@ def _render_schema_form(item) -> tuple[str, str]:
             )
         )
 
-    actions = submit_btn + "".join(quick_action_buttons) + """
-    <div id="inbox-status" class="muted"
-         style="font-size:0.8rem;margin-top:0.75rem;
-                min-height:1.2rem"></div>
-    <script>
-    function pickChoice(btn) {
-      const input = document.getElementById(btn.dataset.input);
-      input.value = btn.dataset.value;
-      const siblings = btn.parentElement
-        .querySelectorAll('.choice-btn');
-      siblings.forEach(s => s.classList.remove('btn-primary'));
-      siblings.forEach(s => s.classList.add('btn-ghost'));
-      btn.classList.remove('btn-ghost');
-      btn.classList.add('btn-primary');
-    }
-    function handleInboxKeydown(e) {
-      if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter') return;
-      const form = e.currentTarget;
-      const itemId = form.dataset.itemId;
-      const handler = form.dataset.submitHandler;
-      if (!itemId || !handler) return;
-      e.preventDefault();
-      const fn = window[handler];
-      if (typeof fn === 'function') fn(itemId);
-    }
-    function setBusy(buttonsParent, busy, label) {
-      const status = document.getElementById('inbox-status');
-      if (status) status.textContent = label || '';
-      const btns = document.querySelectorAll(
-        '.btn-primary, .btn-success, .btn-ghost, .btn-danger'
-      );
-      btns.forEach(b => {
-        b.disabled = busy;
-        b.style.opacity = busy ? '0.5' : '';
-        b.style.pointerEvents = busy ? 'none' : '';
-      });
-    }
-    function _collectAnswer(itemId) {
-      const form = document.getElementById('answer-form-' + itemId);
-      const inputs = form.querySelectorAll('[data-key]');
-      const answer = {};
-      inputs.forEach(el => {
-        if (el.value) answer[el.dataset.key] = el.value;
-      });
-      return answer;
-    }
-    async function submitAnswer(itemId) {
-      const answer = _collectAnswer(itemId);
-      setBusy(null, true, 'Sending answer to YETI...');
-      try {
-        const r = await fetch('/api/inbox/' + itemId + '/answer', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          credentials: 'include',
-          body: JSON.stringify({answer: answer})
-        });
-        if (r.ok) {
-          const data = await r.json();
-          setBusy(null, false,
-            'Saved (' + data.facts_applied + ' facts). Loading next...');
-          clearAndRefresh();
-        } else {
-          setBusy(null, false, 'Failed to send answer');
-        }
-      } catch(e) {
-        setBusy(null, false, 'Error: ' + e.message);
-      }
-    }
-    async function submitProposedTask(itemId) {
-      const answer = _collectAnswer(itemId);
-      if (!answer.title) {
-        setBusy(null, false, 'Title required');
-        return;
-      }
-      setBusy(null, true, 'Creating task...');
-      try {
-        const r = await fetch(
-          '/api/inbox/' + itemId + '/approve-task', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          credentials: 'include',
-          body: JSON.stringify({answer: answer})
-        });
-        if (r.ok) {
-          setBusy(null, false, 'Task created. Loading next...');
-          clearAndRefresh();
-        } else {
-          setBusy(null, false, 'Failed to create task');
-        }
-      } catch(e) {
-        setBusy(null, false, 'Error: ' + e.message);
-      }
-    }
-    async function convertToTask(itemId, defaultTitle) {
-      const title = prompt('Task title:', defaultTitle);
-      if (!title) return;
-      setBusy(null, true, 'Converting to task...');
-      try {
-        const r = await fetch(
-          '/api/inbox/' + itemId + '/convert-to-task', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          credentials: 'include',
-          body: JSON.stringify({title: title})
-        });
-        if (r.ok) {
-          setBusy(null, false, 'Task created. Loading next...');
-          clearAndRefresh();
-        } else {
-          setBusy(null, false, 'Failed');
-        }
-      } catch(e) {
-        setBusy(null, false, 'Error: ' + e.message);
-      }
-    }
-    </script>
-    """
+    followup_form_html = ""
+    if is_proposed_action:
+        followup_form_html = f"""
+    <div id="followup-form-{item.id}" class="followup-form"
+         style="display:none;margin-top:0.75rem;padding:0.75rem;
+                background:var(--bg);border:1px solid var(--border);
+                border-radius:4px">
+      <label class="muted" style="font-size:0.75rem;display:block;
+             margin-bottom:0.25rem">Nudge me on</label>
+      <div class="btn-row" style="margin-bottom:0.5rem">
+        <button type="button" class="btn btn-sm btn-ghost"
+                onclick="setFollowUpDate('{item.id}', 1)">+1d</button>
+        <button type="button" class="btn btn-sm btn-ghost"
+                onclick="setFollowUpDate('{item.id}', 3)">+3d</button>
+        <button type="button" class="btn btn-sm btn-ghost"
+                onclick="setFollowUpDate('{item.id}', 7)">+1w</button>
+        <button type="button" class="btn btn-sm btn-ghost"
+                onclick="setFollowUpDate('{item.id}', 14)">+2w</button>
+      </div>
+      <input type="date" id="followup-date-{item.id}"
+             style="width:100%;padding:0.45rem 0.6rem;
+                    background:var(--bg);border:1px solid var(--border);
+                    border-radius:4px;color:var(--text);
+                    font-size:0.85rem;margin-bottom:0.5rem"/>
+      <input type="text" id="followup-assignee-{item.id}"
+             placeholder="Waiting on (optional)"
+             style="width:100%;padding:0.45rem 0.6rem;
+                    background:var(--bg);border:1px solid var(--border);
+                    border-radius:4px;color:var(--text);
+                    font-size:0.85rem;margin-bottom:0.5rem"/>
+      <input type="text" id="followup-note-{item.id}"
+             placeholder="Note (optional)"
+             style="width:100%;padding:0.45rem 0.6rem;
+                    background:var(--bg);border:1px solid var(--border);
+                    border-radius:4px;color:var(--text);
+                    font-size:0.85rem;margin-bottom:0.5rem"/>
+      <div class="btn-row">
+        <button type="button" class="btn btn-primary btn-sm"
+                onclick="submitFollowUp('{item.id}')">
+          Save follow-up
+        </button>
+      </div>
+    </div>
+        """
+
+    actions = submit_btn + "".join(quick_action_buttons) + followup_form_html
     return body, actions
 
 
-def _escape(text: str) -> str:
+def _js_escape(text: str) -> str:
     """Escape for use inside a JS single-quoted string."""
     return (
-        text.replace("\\", "\\\\")
+        (text or "")
+        .replace("\\", "\\\\")
         .replace("'", "\\'")
         .replace("\n", " ")
     )
@@ -1276,10 +1299,7 @@ def _render_image_fallback(
       Save & Store
     </button>
     <button class="btn btn-ghost"
-            hx-post="/api/inbox/{item.id}/resolve"
-            hx-vals='{{"resolution":"discarded"}}'
-            hx-swap="none"
-            hx-on::after-request="clearAndRefresh()">
+            onclick="resolveInboxItem('{item.id}', 'discarded')">
       Discard
     </button>
     <script>
@@ -1297,7 +1317,7 @@ def _render_image_fallback(
           resolution: 'manual_save',
           note: JSON.stringify(data)
         }})
-      }}).then(() => clearAndRefresh());
+      }}).then(() => removeInboxItem(itemId));
     }}
     </script>
     """

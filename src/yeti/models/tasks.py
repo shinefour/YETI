@@ -21,6 +21,7 @@ DB_PATH = Path(settings.db_path)
 class TaskStatus(enum.StrEnum):
     ACTIVE = "active"
     BLOCKED = "blocked"
+    WAITING = "waiting"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
@@ -34,6 +35,7 @@ class Task(BaseModel):
     due_date: str | None = None
     project: str = ""
     context: str = ""
+    nudge_note: str = ""
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
@@ -66,10 +68,20 @@ class TaskStore:
                     due_date TEXT,
                     project TEXT DEFAULT '',
                     context TEXT DEFAULT '',
+                    nudge_note TEXT DEFAULT '',
                     created_at TEXT NOT NULL,
                     decided_at TEXT
                 )
             """)
+            for col, default in [
+                ("nudge_note", "TEXT DEFAULT ''"),
+            ]:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE tasks ADD COLUMN {col} {default}"
+                    )
+                except sqlite3.OperationalError:
+                    pass
 
     def _migrate_from_actions(self):
         """Copy old `actions` table data into `tasks` if needed."""
@@ -86,7 +98,14 @@ class TaskStore:
             conn.execute(
                 """
                 INSERT INTO tasks
-                SELECT * FROM actions
+                    (id, title, source, status, assignee,
+                     due_date, project, context,
+                     created_at, decided_at)
+                SELECT
+                    id, title, source, status, assignee,
+                    due_date, project, context,
+                    created_at, decided_at
+                FROM actions
                 """
             )
 
@@ -96,9 +115,9 @@ class TaskStore:
                 """
                 INSERT INTO tasks
                     (id, title, source, status, assignee,
-                     due_date, project, context,
+                     due_date, project, context, nudge_note,
                      created_at, decided_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -109,6 +128,7 @@ class TaskStore:
                     item.due_date,
                     item.project,
                     item.context,
+                    item.nudge_note,
                     item.created_at,
                     item.decided_at,
                 ),
@@ -140,6 +160,20 @@ class TaskStore:
         query += " ORDER BY created_at DESC"
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
+        return [Task(**dict(r)) for r in rows]
+
+    def list_waiting(self) -> list[Task]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE status = 'waiting'
+                ORDER BY
+                    CASE WHEN due_date IS NULL OR due_date = ''
+                         THEN 1 ELSE 0 END,
+                    due_date ASC
+                """
+            ).fetchall()
         return [Task(**dict(r)) for r in rows]
 
     def update_status(
