@@ -773,7 +773,7 @@ async def inbox_active_partial():
 
 
 def _render_inbox_group(source_note_id: str, items: list) -> str:
-    """One card per source note: header (source) + per-item blocks."""
+    """One group per source note: source on left, items list on right."""
     if source_note_id:
         header = _render_source_note(items[0])
         group_token = source_note_id
@@ -787,42 +787,55 @@ def _render_inbox_group(source_note_id: str, items: list) -> str:
 
     item_blocks = "".join(_render_item_block(it) for it in items)
     move_on = (
-        f'<div class="card" style="text-align:right;'
-        f'padding:0.5rem 0.75rem">'
         f'<button type="button" class="btn btn-ghost" '
         f"onclick=\"moveOnGroup('{group_token}', {len(items)})\">"
         f"Move on — skip remaining ({len(items)})</button>"
-        f"</div>"
     )
 
     return (
         f'<div id="inbox-group-{group_token}" class="inbox-group" '
         f'data-item-count="{len(items)}">'
-        f"{header}{item_blocks}{move_on}"
+        f'<div class="inbox-source">{header}</div>'
+        f'<div class="inbox-items">{item_blocks}'
+        f'<div class="inbox-actions">{move_on}</div>'
+        f"</div>"
         f"</div>"
     )
 
 
 def _render_item_block(item) -> str:
-    """One inbox item rendered as its own swappable card."""
+    """Collapsed row by default; expands to form on click."""
     body_html, actions_html = _render_inbox_body(item)
     suggestion_html = _render_suggestion(item)
     type_label = item.type.value.replace("_", " ").title()
+    import html as _html
+
+    summary_preview = (item.summary or "").strip().replace("\n", " ")
+    if len(summary_preview) > 110:
+        summary_preview = summary_preview[:110] + "…"
+    summary_html = (
+        f'<div class="muted" style="font-size:0.75rem;'
+        f'margin-top:0.15rem">{_html.escape(summary_preview)}</div>'
+        if summary_preview
+        else ""
+    )
+
     return f"""
-    <div id="inbox-item-{item.id}" class="card inbox-item-block">
-      <div class="muted" style="font-size:0.75rem;
-           text-transform:uppercase;letter-spacing:0.05em">
-        {type_label}
+    <details id="inbox-item-{item.id}" class="inbox-item-block">
+      <summary>
+        <span class="inbox-type-badge">{type_label}</span>
+        <strong>{_html.escape(item.title)}</strong>
+        {summary_html}
+      </summary>
+      <div class="inbox-item-body">
+        {suggestion_html}
+        {body_html}
+        <div style="margin-top:0.75rem;display:flex;gap:0.5rem;
+                    flex-wrap:wrap">
+          {actions_html}
+        </div>
       </div>
-      <h3 style="margin:0.25rem 0 0.5rem">{item.title}</h3>
-      <p class="muted">{item.summary}</p>
-      {suggestion_html}
-      {body_html}
-      <div style="margin-top:1rem;display:flex;gap:0.5rem;
-                  flex-wrap:wrap">
-        {actions_html}
-      </div>
-    </div>
+    </details>
     """
 
 

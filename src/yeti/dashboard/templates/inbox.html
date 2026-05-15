@@ -1,6 +1,59 @@
 {% extends "base.html" %}
 {% block title %}Inbox{% endblock %}
 {% block content %}
+<style>
+.inbox-group {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 1.5rem;
+}
+.inbox-group > .inbox-source > .card { margin: 0; }
+.inbox-group > .inbox-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+}
+.inbox-actions { display: flex; justify-content: flex-end; }
+@media (max-width: 900px) {
+    .inbox-group { grid-template-columns: 1fr; }
+}
+.inbox-item-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0;
+}
+.inbox-item-block > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0.55rem 0.75rem;
+    user-select: none;
+}
+.inbox-item-block > summary::-webkit-details-marker { display: none; }
+.inbox-item-block > summary::before {
+    content: '▸';
+    color: var(--text-dim);
+    margin-right: 0.4rem;
+    display: inline-block;
+    transition: transform 0.1s;
+}
+.inbox-item-block[open] > summary::before { content: '▾'; }
+.inbox-item-block .inbox-type-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-right: 0.5rem;
+}
+.inbox-item-block .inbox-item-body {
+    padding: 0 0.75rem 0.75rem;
+    border-top: 1px solid var(--border);
+}
+</style>
 <div class="page-content">
 <h1>Inbox</h1>
 
