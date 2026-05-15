@@ -162,7 +162,7 @@ class TaskStore:
             rows = conn.execute(query, params).fetchall()
         return [Task(**dict(r)) for r in rows]
 
-    def list_waiting(self) -> list[Task]:
+    def list_waiting(self) -> "list[Task]":
         with self._conn() as conn:
             rows = conn.execute(
                 """
