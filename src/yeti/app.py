@@ -83,16 +83,19 @@ _PUBLIC_PREFIXES = ("/static/", "/favicon")
 
 @app.middleware("http")
 async def normalize_mcp_path(request: Request, call_next):
-    """Rewrite /mcp -> /mcp/ in-place so Starlette's Mount matches.
+    """Rewrite /mcp -> /mcp/ and /dashboard -> /dashboard/ in-place.
 
     redirect_slashes is disabled so we don't 307 claude.ai (which then
-    drops its Bearer header); the trade-off is that the mounted app
-    only matches the trailing-slash form, so the bare /mcp lands on
+    drops its Bearer header); the trade-off is that mounted/prefixed
+    apps only match the trailing-slash form, so bare paths land on
     a 404. Mutate the ASGI path before routing instead.
     """
     if request.scope["path"] == "/mcp":
         request.scope["path"] = "/mcp/"
         request.scope["raw_path"] = b"/mcp/"
+    elif request.scope["path"] == "/dashboard":
+        request.scope["path"] = "/dashboard/"
+        request.scope["raw_path"] = b"/dashboard/"
     return await call_next(request)
 
 
@@ -143,7 +146,7 @@ async def auth_middleware(request: Request, call_next):
     if key_param and secrets.compare_digest(
         key_param, settings.dashboard_api_key
     ):
-        response = RedirectResponse(url="/dashboard")
+        response = RedirectResponse(url="/dashboard/")
         response.set_cookie(
             "yeti_session",
             settings.dashboard_api_key,
@@ -163,7 +166,7 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/")
 async def root():
-    return RedirectResponse(url="/dashboard")
+    return RedirectResponse(url="/dashboard/")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
