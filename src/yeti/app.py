@@ -165,6 +165,31 @@ async def login_page():
     )
 
 
+@app.get("/.well-known/oauth-protected-resource/mcp/")
+@app.get("/.well-known/oauth-protected-resource/mcp")
+async def oauth_protected_resource_mcp():
+    """RFC 9728 Protected Resource Metadata for the MCP server.
+
+    The mounted FastMCP app serves this same document at
+    /mcp/.well-known/oauth-protected-resource/mcp/, but the
+    WWW-Authenticate header it emits points at the root
+    /.well-known/... URL — which 404s under the parent FastAPI. We
+    proxy the metadata at the advertised location so OAuth-aware
+    clients (claude.ai connector, MCP Inspector) can finish discovery.
+    """
+    public = (
+        settings.dashboard_public_url or "http://localhost:8000"
+    ).rstrip("/")
+    return JSONResponse(
+        {
+            "resource": f"{public}/mcp/",
+            "authorization_servers": [f"{public}/mcp"],
+            "scopes_supported": [],
+            "bearer_methods_supported": ["header"],
+        }
+    )
+
+
 @app.get("/health")
 async def health():
     """Health check endpoint — used by kamal-proxy to verify the container is ready."""
