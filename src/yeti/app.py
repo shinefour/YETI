@@ -52,6 +52,12 @@ app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     lifespan=lifespan,
+    # Auto trailing-slash redirects break the MCP bearer flow: claude.ai
+    # POSTs /mcp, FastAPI 307s to /mcp/, the client drops the
+    # Authorization header on the redirect, the MCP transport returns
+    # 401, and the connector reports "Authorization with the MCP server
+    # failed". Serve both /mcp and /mcp/ directly instead.
+    redirect_slashes=False,
 )
 app.include_router(tasks_router)
 app.include_router(inbox_router)
