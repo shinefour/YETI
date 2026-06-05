@@ -1747,12 +1747,78 @@ async def delete_contact_drawer(drawer_id: str):
     return {"ok": True, "deleted": drawer_id}
 
 
+_PERSON_PREDICATES = {
+    "knows",
+    "reports_to",
+    "manages",
+    "consults_for",
+    "married_to",
+    "parent_of",
+    "child_of",
+    "sibling_of",
+    "friend_of",
+    "colleague_of",
+    "introduced_by",
+    "introduced_to",
+    "collaborates_with",
+    "mentor_of",
+    "mentored_by",
+}
+
+
+def _render_person_link(
+    target_name: str,
+    predicate: str,
+    direction: str,
+    drawer_index: dict[str, str],
+    pivot_name: str,
+) -> str:
+    """Row for a related person: clickable when drawer exists."""
+    drawer_id = drawer_index.get(target_name.lower())
+    if direction == "outgoing":
+        label = (
+            f"{_escape(pivot_name)} "
+            f"<span class=\"muted\">{_escape(predicate or 'related')}</span> "
+            f"<strong>{_escape(target_name)}</strong>"
+        )
+    else:
+        label = (
+            f"<strong>{_escape(target_name)}</strong> "
+            f"<span class=\"muted\">{_escape(predicate or 'related')}</span> "
+            f"{_escape(pivot_name)}"
+        )
+    if drawer_id:
+        onclick = (
+            f"openContact('{_escape(drawer_id)}',"
+            f"'{_escape(target_name)}')"
+        )
+        tail = ""
+    else:
+        onclick = (
+            f"askYetiAbout('{_escape(target_name)}','',0)"
+        )
+        tail = (
+            ' <span class="badge badge-dim">no profile</span>'
+        )
+    return (
+        '<div class="status-row" style="cursor:pointer" '
+        f'onclick="{onclick}">'
+        f'<span style="flex:1;min-width:0">{label}{tail}</span>'
+        "</div>"
+    )
+
+
 @router.get(
     "/partials/people-contact-body",
     response_class=HTMLResponse,
 )
 async def people_contact_body_partial(id: str):
-    """Return the raw drawer body text for a contact."""
+    """Render rich profile detail for a contact drawer.
+
+    Sections: drawer text, KG attribute facts, related people
+    (outgoing + incoming, clickable to swap modal), tasks assigned
+    to the person, inbox items mentioning them, retrieval stats.
+    """
     try:
         import chromadb
 
@@ -1770,4 +1836,257 @@ async def people_contact_body_partial(id: str):
     docs = page.get("documents") or []
     if not docs:
         return "Drawer not found."
-    return docs[0] or "(empty)"
+    drawer_text = docs[0] or "(empty)"
+
+    name = ""
+    for line in drawer_text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            name = stripped
+            break
+    if name.lower().startswith("name:"):
+        name = name.split(":", 1)[1].strip()
+
+    drawer_index: dict[str, str] = {}
+    try:
+        for it in _list_contact_drawers(limit=500):
+            drawer_index[it["name"].lower()] = it["id"]
+    except Exception:
+        pass
+
+    facts: list[dict] = []
+    if name:
+        try:
+            kg = await client.kg_query(
+                entity=name, source="people-detail"
+            )
+            f = kg.get("facts") if isinstance(kg, dict) else None
+            if isinstance(f, list):
+                facts = f
+        except Exception:
+            facts = []
+
+    attrs: list[dict] = []
+    outgoing_people: list[dict] = []
+    incoming_people: list[dict] = []
+    seen_out: set[str] = set()
+    seen_in: set[str] = set()
+    for f in facts:
+        if not isinstance(f, dict):
+            continue
+        if f.get("current") is False:
+            continue
+        direction = f.get("direction")
+        pred = (f.get("predicate") or "").strip()
+        subj = (f.get("subject") or "").strip()
+        obj = (f.get("object") or "").strip()
+        if direction == "outgoing":
+            if not obj:
+                continue
+            is_person = (
+                obj.lower() in drawer_index
+                or pred in _PERSON_PREDICATES
+            )
+            if is_person:
+                key = obj.lower()
+                if key not in seen_out:
+                    seen_out.add(key)
+                    outgoing_people.append(
+                        {"name": obj, "predicate": pred}
+                    )
+            else:
+                attrs.append({"predicate": pred, "object": obj})
+        elif direction == "incoming":
+            if not subj:
+                continue
+            key = subj.lower()
+            if key in seen_in:
+                continue
+            seen_in.add(key)
+            incoming_people.append(
+                {"name": subj, "predicate": pred}
+            )
+
+    tasks: list = []
+    if name:
+        try:
+            store = TaskStore()
+            nlow = name.lower()
+            tasks = [
+                t
+                for t in store.list()
+                if t.assignee and nlow in t.assignee.lower()
+            ]
+        except Exception:
+            tasks = []
+
+    inbox_items: list = []
+    if name:
+        try:
+            nlow = name.lower()
+            inbox_items = [
+                it
+                for it in InboxStore().list_pending()
+                if nlow in (it.title or "").lower()
+                or nlow in (it.summary or "").lower()
+            ]
+        except Exception:
+            inbox_items = []
+
+    hit_30d = 0
+    last_seen: str | None = None
+    if name:
+        try:
+            from datetime import timedelta
+
+            from yeti.memory.usage import UsageStore
+
+            usage = UsageStore()
+            hit_30d = usage.entity_hit_count(
+                name,
+                since=datetime.now(UTC) - timedelta(days=30),
+            )
+            last_seen = usage.last_retrieved_for_entity(name)
+        except Exception:
+            pass
+
+    section_header = (
+        '<div class="muted" style="font-size:0.7rem;'
+        "text-transform:uppercase;letter-spacing:0.08em;"
+        'margin-bottom:0.35rem">{label}</div>'
+    )
+
+    parts: list[str] = ['<div class="profile-detail">']
+
+    parts.append('<section style="margin-bottom:1rem">')
+    parts.append(section_header.format(label="Profile"))
+    parts.append(
+        '<pre style="white-space:pre-wrap;font-family:inherit;'
+        "font-size:0.85rem;color:var(--text-soft);"
+        'line-height:1.6;margin:0">'
+        f"{_escape(drawer_text)}</pre>"
+    )
+    parts.append("</section>")
+
+    if attrs:
+        parts.append('<section style="margin-bottom:1rem">')
+        parts.append(section_header.format(label="Facts"))
+        parts.append(
+            '<div style="display:flex;flex-wrap:wrap;'
+            'gap:0.35rem">'
+        )
+        for a in attrs:
+            parts.append(
+                '<span class="badge badge-dim">'
+                f'{_escape(a["predicate"])} '
+                f'{_escape(a["object"])}</span>'
+            )
+        parts.append("</div></section>")
+
+    if outgoing_people or incoming_people:
+        parts.append('<section style="margin-bottom:1rem">')
+        parts.append(section_header.format(label="People"))
+        for r in outgoing_people:
+            parts.append(
+                _render_person_link(
+                    r["name"],
+                    r["predicate"],
+                    "outgoing",
+                    drawer_index,
+                    name,
+                )
+            )
+        for r in incoming_people:
+            parts.append(
+                _render_person_link(
+                    r["name"],
+                    r["predicate"],
+                    "incoming",
+                    drawer_index,
+                    name,
+                )
+            )
+        parts.append("</section>")
+
+    if tasks:
+        parts.append('<section style="margin-bottom:1rem">')
+        parts.append(
+            section_header.format(
+                label=f"Tasks ({len(tasks)})"
+            )
+        )
+        for t in tasks:
+            status_val = (
+                t.status.value
+                if hasattr(t.status, "value")
+                else str(t.status)
+            )
+            project_badge = (
+                f' <span class="badge badge-dim">'
+                f"{_escape(t.project)}</span>"
+                if t.project
+                else ""
+            )
+            parts.append(
+                '<a class="status-row" '
+                f'href="/dashboard/tasks?focus={_escape(t.id)}" '
+                'style="text-decoration:none;color:inherit;'
+                'display:block">'
+                f"<strong>{_escape(t.title)}</strong> "
+                '<span class="badge badge-dim">'
+                f"{_escape(status_val)}</span>"
+                f"{project_badge}"
+                "</a>"
+            )
+        parts.append("</section>")
+
+    if inbox_items:
+        parts.append('<section style="margin-bottom:1rem">')
+        parts.append(
+            section_header.format(
+                label=f"Inbox ({len(inbox_items)})"
+            )
+        )
+        for it in inbox_items:
+            type_val = (
+                it.type.value
+                if hasattr(it.type, "value")
+                else str(it.type)
+            )
+            summary_line = (
+                f'<div class="muted" style="font-size:0.75rem;'
+                "overflow:hidden;text-overflow:ellipsis;"
+                'white-space:nowrap">'
+                f"{_escape(it.summary)}</div>"
+                if it.summary
+                else ""
+            )
+            parts.append(
+                '<a class="status-row" '
+                f'href="/dashboard/inbox?focus={_escape(it.id)}" '
+                'style="text-decoration:none;color:inherit;'
+                'display:block">'
+                f"<strong>{_escape(it.title)}</strong> "
+                '<span class="badge badge-dim">'
+                f"{_escape(type_val)}</span>"
+                f"{summary_line}"
+                "</a>"
+            )
+        parts.append("</section>")
+
+    if hit_30d or last_seen:
+        last_str = (last_seen or "")[:10]
+        suffix = (
+            f" · last seen {_escape(last_str)}"
+            if last_str
+            else ""
+        )
+        parts.append(
+            '<section class="muted" '
+            'style="font-size:0.7rem;margin-top:0.5rem">'
+            f"Retrieved {hit_30d}× in last 30d{suffix}"
+            "</section>"
+        )
+
+    parts.append("</div>")
+    return "\n".join(parts)

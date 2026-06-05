@@ -26,11 +26,12 @@
 
 <div id="contact-detail-backdrop" class="modal-backdrop"
      onclick="if(event.target===this)closeContact()">
-  <div class="modal" id="contact-detail">
+  <div class="modal" id="contact-detail"
+       style="max-width:760px;max-height:85vh;overflow-y:auto">
     <h2 id="contact-detail-name">Contact</h2>
     <div id="contact-detail-body"
-         style="white-space:pre-wrap;font-size:0.85rem;
-                color:var(--text-soft);line-height:1.6"></div>
+         style="font-size:0.85rem;color:var(--text-soft);
+                line-height:1.5"></div>
     <div class="modal-actions">
       <button class="btn btn-danger btn-sm"
               onclick="deleteContact()">Delete drawer</button>
@@ -78,9 +79,12 @@ window.openContact = async function(id, name) {
     window._currentContact = { id: id, name: name };
     document.getElementById('contact-detail-name').textContent =
         name || 'Contact';
-    document.getElementById('contact-detail-body').textContent = body;
-    document.getElementById('contact-detail-backdrop')
-        .classList.add('open');
+    document.getElementById('contact-detail-body').innerHTML = body;
+    const bd = document.getElementById('contact-detail-backdrop');
+    bd.classList.add('open');
+    bd.scrollTop = 0;
+    const modal = document.getElementById('contact-detail');
+    if (modal) modal.scrollTop = 0;
 };
 
 window.closeContact = function() {
