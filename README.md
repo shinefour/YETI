@@ -28,6 +28,30 @@ Then open `http://localhost:8000/dashboard`.
 | Telegram | Message `@YetiSystemBot` (or your bot) |
 | API | `http://localhost:8000/api/` |
 
+## Browser Authentication
+
+Every non-public route (anything except `/health` and `/webhooks/*`) requires the dashboard API key. To sign a browser in for 30 days:
+
+1. **Find the key.**
+   - Local: `grep YETI_DASHBOARD_API_KEY .env`
+   - Production: `grep YETI_DASHBOARD_API_KEY .kamal/secrets`
+2. **Visit the login URL once** with the key in the query string:
+   ```
+   https://yeti.diconve.com/?key=<YETI_DASHBOARD_API_KEY>
+   ```
+   (Local dev: `http://localhost:8000/?key=<KEY>`)
+3. The server sets a `yeti_session` cookie (httponly, secure, samesite=strict, 30-day TTL) and redirects to `/dashboard`. Subsequent requests are auto-authenticated until the cookie expires.
+
+**Sign out:** clear the `yeti_session` cookie in browser dev tools (Application → Cookies → delete).
+
+**Rotate the key:** change `YETI_DASHBOARD_API_KEY` in secrets, run `kamal deploy`. All existing cookies invalidate; re-auth via step 2.
+
+**Headless / CLI / scripts:** send `x-api-key: <KEY>` header instead — no cookie needed.
+
+```bash
+curl -H "x-api-key: $YETI_DASHBOARD_API_KEY" https://yeti.diconve.com/api/inbox/count
+```
+
 ## Credentials
 
 Copy `.env.example` to `.env` and fill in the values below.
