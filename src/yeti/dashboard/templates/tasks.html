@@ -1,6 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Tasks{% endblock %}
 {% block content %}
+<style>
+.task-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0;
+    margin-bottom: 0.5rem;
+}
+.task-block > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0.55rem 0.75rem;
+    user-select: none;
+}
+.task-block > summary::-webkit-details-marker { display: none; }
+.task-block > summary::before {
+    content: '▸';
+    color: var(--text-dim);
+    margin-right: 0.4rem;
+    display: inline-block;
+    transition: transform 0.1s;
+}
+.task-block[open] > summary::before { content: '▾'; }
+.task-block .task-body {
+    padding: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+</style>
 <div class="page-content">
 <h1>Tasks</h1>
 
@@ -33,12 +61,33 @@ async function _patchTask(taskId, status) {
     if (r.ok) {
         document.getElementById('tasks-list')
             .dispatchEvent(new Event('refresh'));
+        document.getElementById('waiting-list')
+            .dispatchEvent(new Event('refresh'));
     }
 }
 function markTaskDone(id) { _patchTask(id, 'completed'); }
 function markTaskBlocked(id) { _patchTask(id, 'blocked'); }
 function markTaskActive(id) { _patchTask(id, 'active'); }
 function markTaskCancelled(id) { _patchTask(id, 'cancelled'); }
+
+// Preserve <details open> state across HTMX polling swaps.
+['waiting-list', 'tasks-list'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var openIds = new Set();
+    el.addEventListener('htmx:beforeSwap', function () {
+        openIds = new Set(
+            Array.from(el.querySelectorAll('details[open]'))
+                .map(function (d) { return d.id; })
+        );
+    });
+    el.addEventListener('htmx:afterSwap', function () {
+        openIds.forEach(function (did) {
+            var d = document.getElementById(did);
+            if (d) d.open = true;
+        });
+    });
+});
 </script>
 </div>
 {% endblock %}

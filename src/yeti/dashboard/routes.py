@@ -588,28 +588,61 @@ async def tasks_flat_partial():
             "</div>"
         )
 
+    import html as _html
+
     rows = []
 
-    def _row(task, status_label, status_color, actions_html):
+    def _block(task, status_label, status_color, actions_html):
         project_tag = (
-            f' <span class="badge badge-dim">{task.project}</span>'
+            f' <span class="badge badge-dim">'
+            f"{_html.escape(task.project)}</span>"
             if task.project
             else ""
         )
         assignee_tag = (
-            f' <span class="badge badge-dim">{task.assignee}</span>'
+            f' <span class="badge badge-dim">'
+            f"{_html.escape(task.assignee)}</span>"
             if task.assignee and task.assignee != "Daniel"
             else ""
         )
+        context = (task.context or "").strip()
+        preview = context.replace("\n", " ")
+        if len(preview) > 110:
+            preview = preview[:110] + "…"
+        preview_html = (
+            f'<div class="muted" style="font-size:0.75rem;'
+            f'margin-top:0.15rem">{_html.escape(preview)}</div>'
+            if preview
+            else ""
+        )
+        context_html = (
+            f'<div class="muted" style="font-size:0.85rem;'
+            f'margin-bottom:0.5rem;white-space:pre-wrap">'
+            f"Context: {_html.escape(context)}</div>"
+            if context
+            else ""
+        )
+        note = _resolve_task_source_note(task)
+        source_html = _render_note_card(note) if note else ""
+        actions_block = (
+            f'<div style="margin-top:0.75rem;display:flex;'
+            f'gap:0.5rem;flex-wrap:wrap">{actions_html}</div>'
+            if actions_html
+            else ""
+        )
         return (
-            f'<div class="status-row">'
-            f'<span style="flex:0 0 70px">'
-            f'<span class="badge" style="color:{status_color}">'
-            f"{status_label}</span></span>"
-            f'<span style="flex:1">{task.title}'
-            f"{project_tag}{assignee_tag}</span>"
-            f'<span class="btn-row">{actions_html}</span>'
+            f'<details id="task-{task.id}" class="task-block">'
+            f"<summary>"
+            f'<span class="badge" style="color:{status_color};'
+            f'margin-right:0.5rem">{status_label}</span>'
+            f"<strong>{_html.escape(task.title)}</strong>"
+            f"{project_tag}{assignee_tag}"
+            f"{preview_html}"
+            f"</summary>"
+            f'<div class="task-body">'
+            f"{context_html}{source_html}{actions_block}"
             f"</div>"
+            f"</details>"
         )
 
     for t in active:
@@ -621,7 +654,7 @@ async def tasks_flat_partial():
             f'<button class="btn btn-ghost btn-sm" '
             f"onclick=\"markTaskCancelled('{t.id}')\">Cancel</button>"
         )
-        rows.append(_row(t, "ACTIVE", "var(--green)", actions))
+        rows.append(_block(t, "ACTIVE", "var(--green)", actions))
 
     for t in blocked:
         actions = (
@@ -631,17 +664,12 @@ async def tasks_flat_partial():
             f"onclick=\"markTaskCancelled('{t.id}')\">Cancel</button>"
         )
         rows.append(
-            _row(t, "BLOCKED", "var(--yellow)", actions)
+            _block(t, "BLOCKED", "var(--yellow)", actions)
         )
 
     for t in completed:
         rows.append(
-            _row(
-                t,
-                "DONE",
-                "var(--text-dim)",
-                "",
-            )
+            _block(t, "DONE", "var(--text-dim)", "")
         )
 
     return "\n".join(rows)
@@ -683,12 +711,22 @@ async def waiting_tasks_partial():
             if t.assignee
             else ""
         )
-        note_html = (
+        nudge_html = (
             f'<div class="muted" style="font-size:0.75rem;'
             f'margin-top:0.15rem">{_html.escape(t.nudge_note)}</div>'
             if t.nudge_note
             else ""
         )
+        context = (t.context or "").strip()
+        context_html = (
+            f'<div class="muted" style="font-size:0.85rem;'
+            f'margin-bottom:0.5rem;white-space:pre-wrap">'
+            f"Context: {_html.escape(context)}</div>"
+            if context
+            else ""
+        )
+        note = _resolve_task_source_note(t)
+        source_html = _render_note_card(note) if note else ""
         actions = (
             f'<button class="btn btn-ghost btn-sm" '
             f"onclick=\"markTaskActive('{t.id}')\">Resume</button>"
@@ -698,13 +736,21 @@ async def waiting_tasks_partial():
             f"onclick=\"markTaskCancelled('{t.id}')\">Drop</button>"
         )
         rows.append(
-            f'<div class="status-row">'
-            f'<span style="flex:0 0 90px;color:{due_color};'
-            f'font-size:0.8rem">{due_label}</span>'
-            f'<span style="flex:1">{_html.escape(t.title)}'
-            f"{assignee_tag}{note_html}</span>"
-            f'<span class="btn-row">{actions}</span>'
+            f'<details id="waiting-{t.id}" class="task-block">'
+            f"<summary>"
+            f'<span style="color:{due_color};font-size:0.8rem;'
+            f'margin-right:0.5rem;display:inline-block;'
+            f'min-width:5.5rem">{due_label}</span>'
+            f"<strong>{_html.escape(t.title)}</strong>"
+            f"{assignee_tag}"
+            f"{nudge_html}"
+            f"</summary>"
+            f'<div class="task-body">'
+            f"{context_html}{source_html}"
+            f'<div style="margin-top:0.75rem;display:flex;'
+            f'gap:0.5rem;flex-wrap:wrap">{actions}</div>'
             f"</div>"
+            f"</details>"
         )
 
     return "\n".join(rows)
@@ -942,7 +988,11 @@ def _render_source_note(item) -> str:
     note = store.get(note_id)
     if not note:
         return ""
+    return _render_note_card(note)
 
+
+def _render_note_card(note) -> str:
+    """Render a Note as the standard source card (email-aware)."""
     import html as _html
 
     captured = note.created_at.split("T")[0]
@@ -1008,6 +1058,31 @@ def _render_source_note(item) -> str:
                   font-family:inherit">{body_html}</pre>
     </div>
     """
+
+
+def _resolve_task_source_note(task):
+    """Walk Task.source ('inbox:<id>') back to its originating Note."""
+    src = (task.source or "").strip()
+    if not src or ":" not in src:
+        return None
+    prefix, _, item_id = src.partition(":")
+    if prefix != "inbox" or not item_id:
+        return None
+    try:
+        inbox_item = InboxStore().get(item_id)
+    except Exception:
+        return None
+    if not inbox_item:
+        return None
+    note_id = _resolve_note_id(inbox_item)
+    if not note_id:
+        return None
+    from yeti.models.notes import NoteStore
+
+    try:
+        return NoteStore().get(note_id)
+    except Exception:
+        return None
 
 
 def _resolve_btn(
