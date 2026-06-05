@@ -232,8 +232,8 @@ function _newChatUrl(id) {
     const q = encodeURIComponent(promptText);
     const proj = window.YETI_CLAUDE_PROJECT_ID || '';
     if (proj) {
-        return 'https://claude.ai/project/' + encodeURIComponent(proj)
-            + '/new?q=' + q;
+        return 'https://claude.ai/new?q=' + q
+            + '&project=' + encodeURIComponent(proj);
     }
     return 'https://claude.ai/new?q=' + q;
 }
