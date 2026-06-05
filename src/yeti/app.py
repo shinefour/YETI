@@ -82,6 +82,21 @@ _PUBLIC_PREFIXES = ("/static/", "/favicon")
 
 
 @app.middleware("http")
+async def normalize_mcp_path(request: Request, call_next):
+    """Rewrite /mcp -> /mcp/ in-place so Starlette's Mount matches.
+
+    redirect_slashes is disabled so we don't 307 claude.ai (which then
+    drops its Bearer header); the trade-off is that the mounted app
+    only matches the trailing-slash form, so the bare /mcp lands on
+    a 404. Mutate the ASGI path before routing instead.
+    """
+    if request.scope["path"] == "/mcp":
+        request.scope["path"] = "/mcp/"
+        request.scope["raw_path"] = b"/mcp/"
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """Require API key for all routes except health and webhooks."""
     path = request.url.path
