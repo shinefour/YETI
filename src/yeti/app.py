@@ -64,6 +64,7 @@ app.include_router(integrations_router)
 app.include_router(dashboard_router)
 
 _STATIC_DIR = Path(__file__).parent / "dashboard" / "static"
+_STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/static", StaticFiles(directory=str(_STATIC_DIR)), name="static"
 )
