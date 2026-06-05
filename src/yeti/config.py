@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
+    # claude.ai Project that "Work on this" launches chats inside.
+    # Empty = use plain /new (no project context).
+    claude_project_id: str = ""
+
     # --- LiteLLM ---
     litellm_default_model: str = "claude-sonnet-4-20250514"
     litellm_fast_model: str = "claude-haiku-4-5-20251001"

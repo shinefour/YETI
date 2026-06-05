@@ -30,6 +30,7 @@
 }
 .outcome-row .btn { margin-left: 0.25rem; }
 dialog.work-on {
+    margin: auto;
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text);
@@ -90,20 +91,51 @@ dialog.work-on .hint {
 
 <dialog id="work-on-dialog" class="work-on">
     <h3>Work on: <span class="title"></span></h3>
-    <div><strong>Outcome:</strong></div>
+    <div><strong>Target deliverable:</strong></div>
     <div class="outcome"></div>
+    <div class="hint" style="margin-top:0">
+        Discuss approach first — chat shouldn't dump the deliverable on
+        the first reply.
+    </div>
+
+    <div class="resume-block" style="display:none;margin-top:0.75rem">
+        <strong style="font-size:0.85rem">Saved chat:</strong>
+        <div class="row">
+            <a class="btn btn-primary btn-sm resume-link"
+               href="#" target="_blank" rel="noopener">
+                Resume chat
+            </a>
+            <button class="btn btn-ghost btn-sm"
+                    onclick="clearChatUrl()">Forget chat</button>
+        </div>
+    </div>
+
     <div class="row">
-        <a class="btn btn-primary btn-sm web-link"
+        <a class="btn btn-primary btn-sm web-link new-chat-btn"
            href="#" target="_blank" rel="noopener">
-            Open in claude.ai
+            Start new chat
         </a>
         <button class="btn btn-ghost btn-sm"
                 onclick="document.getElementById('work-on-dialog').close()">
             Close
         </button>
     </div>
+
+    <div style="margin-top:0.75rem">
+        <strong style="font-size:0.85rem">Paste chat URL to resume next time:</strong>
+        <div class="row" style="margin-top:0.25rem">
+            <input type="url" class="chat-url-input"
+                   placeholder="https://claude.ai/chat/..."
+                   style="flex:1;min-width:0;padding:0.3rem 0.5rem;
+                          background:var(--bg);color:var(--text);
+                          border:1px solid var(--border);border-radius:4px"/>
+            <button class="btn btn-ghost btn-sm"
+                    onclick="saveChatUrl()">Save</button>
+        </div>
+    </div>
+
     <div class="hint">
-        Web: make sure your YETI Project + connector is active in claude.ai.
+        Web: make sure YETI Project + connector is active in claude.ai.
     </div>
     <div style="margin-top:0.75rem">
         <strong style="font-size:0.85rem">Terminal:</strong>
@@ -114,6 +146,10 @@ dialog.work-on .hint {
         </div>
     </div>
 </dialog>
+
+<script>
+window.YETI_CLAUDE_PROJECT_ID = {{ (claude_project_id or "") | tojson }};
+</script>
 
 <script>
 async function _patchTask(taskId, status) {
@@ -188,19 +224,73 @@ async function workOnTask(id) {
         task = await _fetchTask(id);
         outcome = (task && task.outcome || outcome).trim();
     }
-    _openWorkOnDialog(id, task.title, outcome);
+    _openWorkOnDialog(id, task.title, outcome, (task.chat_url || '').trim());
 }
 
-function _openWorkOnDialog(id, title, outcome) {
-    const promptText = '/yeti-task ' + id + '\n\nOutcome: ' + outcome;
-    const url = 'https://claude.ai/new?q=' + encodeURIComponent(promptText);
+function _newChatUrl(id) {
+    const promptText = '/yeti-task ' + id;
+    const q = encodeURIComponent(promptText);
+    const proj = window.YETI_CLAUDE_PROJECT_ID || '';
+    if (proj) {
+        return 'https://claude.ai/project/' + encodeURIComponent(proj)
+            + '/new?q=' + q;
+    }
+    return 'https://claude.ai/new?q=' + q;
+}
+
+function _openWorkOnDialog(id, title, outcome, chatUrl) {
+    const newUrl = _newChatUrl(id);
     const cli = 'claude "/yeti-task ' + id + '"';
     const dlg = document.getElementById('work-on-dialog');
+    dlg.dataset.taskId = id;
     dlg.querySelector('.title').textContent = title;
     dlg.querySelector('.outcome').textContent = outcome;
-    dlg.querySelector('.web-link').href = url;
+    dlg.querySelector('.web-link').href = newUrl;
     dlg.querySelector('.cli-code').textContent = cli;
+    dlg.querySelector('.chat-url-input').value = chatUrl || '';
+
+    const resumeBlock = dlg.querySelector('.resume-block');
+    const newBtn = dlg.querySelector('.new-chat-btn');
+    if (chatUrl) {
+        resumeBlock.style.display = '';
+        resumeBlock.querySelector('.resume-link').href = chatUrl;
+        newBtn.textContent = 'Start new chat';
+    } else {
+        resumeBlock.style.display = 'none';
+        newBtn.textContent = 'Open in claude.ai';
+    }
     dlg.showModal();
+}
+
+async function saveChatUrl() {
+    const dlg = document.getElementById('work-on-dialog');
+    const id = dlg.dataset.taskId;
+    const url = dlg.querySelector('.chat-url-input').value.trim();
+    if (!id) return;
+    const r = await fetch('/api/tasks/' + id, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({chat_url: url})
+    });
+    if (!r.ok) { alert('save failed'); return; }
+    const task = await r.json();
+    const resumeBlock = dlg.querySelector('.resume-block');
+    const newBtn = dlg.querySelector('.new-chat-btn');
+    if (task.chat_url) {
+        resumeBlock.style.display = '';
+        resumeBlock.querySelector('.resume-link').href = task.chat_url;
+        newBtn.textContent = 'Start new chat';
+    } else {
+        resumeBlock.style.display = 'none';
+        newBtn.textContent = 'Open in claude.ai';
+    }
+}
+
+async function clearChatUrl() {
+    const dlg = document.getElementById('work-on-dialog');
+    dlg.querySelector('.chat-url-input').value = '';
+    await saveChatUrl();
 }
 
 function copyCli() {

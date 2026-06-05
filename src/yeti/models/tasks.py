@@ -37,6 +37,7 @@ class Task(BaseModel):
     context: str = ""
     outcome: str = ""
     nudge_note: str = ""
+    chat_url: str = ""
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
@@ -71,6 +72,7 @@ class TaskStore:
                     context TEXT DEFAULT '',
                     outcome TEXT DEFAULT '',
                     nudge_note TEXT DEFAULT '',
+                    chat_url TEXT DEFAULT '',
                     created_at TEXT NOT NULL,
                     decided_at TEXT
                 )
@@ -78,6 +80,7 @@ class TaskStore:
             for col, default in [
                 ("nudge_note", "TEXT DEFAULT ''"),
                 ("outcome", "TEXT DEFAULT ''"),
+                ("chat_url", "TEXT DEFAULT ''"),
             ]:
                 try:
                     conn.execute(
@@ -119,8 +122,8 @@ class TaskStore:
                 INSERT INTO tasks
                     (id, title, source, status, assignee,
                      due_date, project, context, outcome, nudge_note,
-                     created_at, decided_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     chat_url, created_at, decided_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -133,6 +136,7 @@ class TaskStore:
                     item.context,
                     item.outcome,
                     item.nudge_note,
+                    item.chat_url,
                     item.created_at,
                     item.decided_at,
                 ),
@@ -209,6 +213,7 @@ class TaskStore:
         "context",
         "outcome",
         "nudge_note",
+        "chat_url",
     }
 
     def update_fields(

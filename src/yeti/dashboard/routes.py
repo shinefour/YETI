@@ -32,7 +32,12 @@ async def home_page(request: Request):
 @router.get("/tasks", response_class=HTMLResponse)
 async def tasks_page(request: Request):
     return templates.TemplateResponse(
-        request, "tasks.html", {"active": "tasks"}
+        request,
+        "tasks.html",
+        {
+            "active": "tasks",
+            "claude_project_id": settings.claude_project_id,
+        },
     )
 
 
