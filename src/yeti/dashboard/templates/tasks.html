@@ -28,6 +28,44 @@
     padding: 0.75rem;
     border-top: 1px solid var(--border);
 }
+.outcome-row .btn { margin-left: 0.25rem; }
+dialog.work-on {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    max-width: 540px;
+    width: 90vw;
+}
+dialog.work-on::backdrop { background: rgba(0,0,0,0.5); }
+dialog.work-on h3 { margin: 0 0 0.5rem 0; font-size: 1.05rem; }
+dialog.work-on .outcome {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 0.6rem;
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+}
+dialog.work-on code.cli-code {
+    display: block;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+dialog.work-on .row {
+    display: flex; gap: 0.5rem; align-items: center;
+    margin-top: 0.5rem; flex-wrap: wrap;
+}
+dialog.work-on .hint {
+    font-size: 0.75rem; color: var(--text-dim);
+    margin-top: 0.5rem;
+}
 </style>
 <div class="page-content">
 <h1>Tasks</h1>
@@ -50,6 +88,33 @@
     <div class="muted">Loading...</div>
 </div>
 
+<dialog id="work-on-dialog" class="work-on">
+    <h3>Work on: <span class="title"></span></h3>
+    <div><strong>Outcome:</strong></div>
+    <div class="outcome"></div>
+    <div class="row">
+        <a class="btn btn-primary btn-sm web-link"
+           href="#" target="_blank" rel="noopener">
+            Open in claude.ai
+        </a>
+        <button class="btn btn-ghost btn-sm"
+                onclick="document.getElementById('work-on-dialog').close()">
+            Close
+        </button>
+    </div>
+    <div class="hint">
+        Web: make sure your YETI Project + connector is active in claude.ai.
+    </div>
+    <div style="margin-top:0.75rem">
+        <strong style="font-size:0.85rem">Terminal:</strong>
+        <code class="cli-code"></code>
+        <div class="row">
+            <button class="btn btn-ghost btn-sm copy-btn"
+                    onclick="copyCli()">Copy</button>
+        </div>
+    </div>
+</dialog>
+
 <script>
 async function _patchTask(taskId, status) {
     const r = await fetch('/api/tasks/' + taskId + '/status', {
@@ -69,6 +134,84 @@ function markTaskDone(id) { _patchTask(id, 'completed'); }
 function markTaskBlocked(id) { _patchTask(id, 'blocked'); }
 function markTaskActive(id) { _patchTask(id, 'active'); }
 function markTaskCancelled(id) { _patchTask(id, 'cancelled'); }
+
+async function _saveOutcome(id, outcome) {
+    const r = await fetch('/api/tasks/' + id, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({outcome: outcome})
+    });
+    if (!r.ok) { alert('save failed'); return null; }
+    document.getElementById('tasks-list')
+        .dispatchEvent(new Event('refresh'));
+    return await r.json();
+}
+
+async function draftOutcome(id) {
+    const r = await fetch('/api/tasks/' + id + '/outcome/draft', {
+        method: 'POST', credentials: 'include'
+    });
+    if (!r.ok) { alert('draft failed'); return null; }
+    const data = await r.json();
+    const draft = (data.outcome || '').trim();
+    const edited = prompt('Accept or edit outcome:', draft);
+    if (edited === null) return null;
+    const final = edited.trim();
+    if (!final) return null;
+    await _saveOutcome(id, final);
+    return final;
+}
+
+async function editOutcome(id) {
+    const row = document.getElementById('outcome-' + id);
+    const span = row ? row.querySelector('.outcome-text') : null;
+    const current = span ? span.textContent.trim() : '';
+    const edited = prompt('Outcome:', current);
+    if (edited === null) return;
+    await _saveOutcome(id, edited.trim());
+}
+
+async function _fetchTask(id) {
+    const r = await fetch('/api/tasks/' + id, {credentials: 'include'});
+    if (!r.ok) return null;
+    return await r.json();
+}
+
+async function workOnTask(id) {
+    let task = await _fetchTask(id);
+    if (!task) { alert('task not found'); return; }
+    let outcome = (task.outcome || '').trim();
+    if (!outcome) {
+        outcome = await draftOutcome(id);
+        if (!outcome) return;
+        task = await _fetchTask(id);
+        outcome = (task && task.outcome || outcome).trim();
+    }
+    _openWorkOnDialog(id, task.title, outcome);
+}
+
+function _openWorkOnDialog(id, title, outcome) {
+    const promptText = '/yeti-task ' + id + '\n\nOutcome: ' + outcome;
+    const url = 'https://claude.ai/new?q=' + encodeURIComponent(promptText);
+    const cli = 'claude "/yeti-task ' + id + '"';
+    const dlg = document.getElementById('work-on-dialog');
+    dlg.querySelector('.title').textContent = title;
+    dlg.querySelector('.outcome').textContent = outcome;
+    dlg.querySelector('.web-link').href = url;
+    dlg.querySelector('.cli-code').textContent = cli;
+    dlg.showModal();
+}
+
+function copyCli() {
+    const dlg = document.getElementById('work-on-dialog');
+    const cli = dlg.querySelector('.cli-code').textContent;
+    navigator.clipboard.writeText(cli);
+    const btn = dlg.querySelector('.copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(function () { btn.textContent = orig; }, 1200);
+}
 
 // Preserve <details open> state across HTMX polling swaps.
 ['waiting-list', 'tasks-list'].forEach(function (id) {

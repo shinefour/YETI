@@ -4,10 +4,12 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx as _httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from yeti.agents.chat import chat as chat_agent
 from yeti.api.entity import router as entity_router
@@ -22,8 +24,12 @@ from yeti.config import settings
 from yeti.dashboard.routes import router as dashboard_router
 from yeti.integrations.jira import JiraAdapter
 from yeti.integrations.notion import NotionAdapter
+from yeti.mcp_server import http_app as _build_mcp_http_app
 
 logger = logging.getLogger(__name__)
+
+
+_mcp_http_app = _build_mcp_http_app()
 
 
 @asynccontextmanager
@@ -38,7 +44,8 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Migrations failed")
 
-    yield
+    async with _mcp_http_app.lifespan(app):
+        yield
 
 
 app = FastAPI(
@@ -56,8 +63,15 @@ app.include_router(usage_router)
 app.include_router(integrations_router)
 app.include_router(dashboard_router)
 
+_STATIC_DIR = Path(__file__).parent / "dashboard" / "static"
+app.mount(
+    "/static", StaticFiles(directory=str(_STATIC_DIR)), name="static"
+)
+app.mount("/mcp", _mcp_http_app)
+
 # Paths that don't require auth
 _PUBLIC_PATHS = {"/health", "/webhooks"}
+_PUBLIC_PREFIXES = ("/static/", "/favicon")
 
 
 @app.middleware("http")
@@ -69,6 +83,16 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     if path == "/health" or path.startswith("/webhooks"):
+        return await call_next(request)
+
+    if path.startswith(_PUBLIC_PREFIXES):
+        return await call_next(request)
+
+    # MCP: the mounted server enforces its own OAuth 2.1 auth, so we let
+    # the parent middleware pass everything under /mcp through. claude.ai
+    # connector UI does not allow custom headers and treats OAuth as
+    # mandatory, hence the in-memory OAuth provider inside the MCP server.
+    if path == "/mcp" or path.startswith("/mcp/"):
         return await call_next(request)
 
     # Check cookie (dashboard sessions)
@@ -111,6 +135,14 @@ async def auth_middleware(request: Request, call_next):
 @app.get("/")
 async def root():
     return RedirectResponse(url="/dashboard")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+@app.get("/favicon.svg", include_in_schema=False)
+async def favicon():
+    return FileResponse(
+        _STATIC_DIR / "yeti.svg", media_type="image/svg+xml"
+    )
 
 
 @app.get("/login")

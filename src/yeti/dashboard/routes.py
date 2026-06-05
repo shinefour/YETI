@@ -622,6 +622,7 @@ async def tasks_flat_partial():
             if context
             else ""
         )
+        outcome_html = _render_outcome_row(task)
         note = _resolve_task_source_note(task)
         source_html = _render_note_card(note) if note else ""
         actions_block = (
@@ -640,13 +641,15 @@ async def tasks_flat_partial():
             f"{preview_html}"
             f"</summary>"
             f'<div class="task-body">'
-            f"{context_html}{source_html}{actions_block}"
+            f"{outcome_html}{context_html}{source_html}{actions_block}"
             f"</div>"
             f"</details>"
         )
 
     for t in active:
         actions = (
+            f'<button class="btn btn-primary btn-sm" '
+            f"onclick=\"workOnTask('{t.id}')\">Work on this</button>"
             f'<button class="btn btn-success btn-sm" '
             f"onclick=\"markTaskDone('{t.id}')\">Done</button>"
             f'<button class="btn btn-ghost btn-sm" '
@@ -658,6 +661,8 @@ async def tasks_flat_partial():
 
     for t in blocked:
         actions = (
+            f'<button class="btn btn-primary btn-sm" '
+            f"onclick=\"workOnTask('{t.id}')\">Work on this</button>"
             f'<button class="btn btn-success btn-sm" '
             f"onclick=\"markTaskActive('{t.id}')\">Resume</button>"
             f'<button class="btn btn-ghost btn-sm" '
@@ -1083,6 +1088,38 @@ def _resolve_task_source_note(task):
         return NoteStore().get(note_id)
     except Exception:
         return None
+
+
+def _render_outcome_row(task) -> str:
+    """Render the outcome line inside a task expand body."""
+    import html as _h
+
+    outcome = (task.outcome or "").strip()
+    base = (
+        f'<div id="outcome-{task.id}" class="outcome-row" '
+        f'style="margin-bottom:0.5rem;font-size:0.9rem">'
+    )
+    if outcome:
+        return (
+            f"{base}"
+            f"<strong>Outcome:</strong> "
+            f'<span class="outcome-text">{_h.escape(outcome)}</span> '
+            f'<button class="btn btn-ghost btn-sm" '
+            f'onclick="editOutcome(\'{task.id}\')">Edit</button>'
+            f'<button class="btn btn-ghost btn-sm" '
+            f'onclick="draftOutcome(\'{task.id}\')">Re-draft</button>'
+            f"</div>"
+        )
+    return (
+        f"{base}"
+        f"<strong>Outcome:</strong> "
+        f'<span class="muted">(none)</span> '
+        f'<button class="btn btn-ghost btn-sm" '
+        f'onclick="draftOutcome(\'{task.id}\')">Draft</button>'
+        f'<button class="btn btn-ghost btn-sm" '
+        f'onclick="editOutcome(\'{task.id}\')">Write</button>'
+        f"</div>"
+    )
 
 
 def _resolve_btn(

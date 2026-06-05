@@ -35,6 +35,7 @@ class Task(BaseModel):
     due_date: str | None = None
     project: str = ""
     context: str = ""
+    outcome: str = ""
     nudge_note: str = ""
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat()
@@ -68,6 +69,7 @@ class TaskStore:
                     due_date TEXT,
                     project TEXT DEFAULT '',
                     context TEXT DEFAULT '',
+                    outcome TEXT DEFAULT '',
                     nudge_note TEXT DEFAULT '',
                     created_at TEXT NOT NULL,
                     decided_at TEXT
@@ -75,6 +77,7 @@ class TaskStore:
             """)
             for col, default in [
                 ("nudge_note", "TEXT DEFAULT ''"),
+                ("outcome", "TEXT DEFAULT ''"),
             ]:
                 try:
                     conn.execute(
@@ -115,9 +118,9 @@ class TaskStore:
                 """
                 INSERT INTO tasks
                     (id, title, source, status, assignee,
-                     due_date, project, context, nudge_note,
+                     due_date, project, context, outcome, nudge_note,
                      created_at, decided_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.id,
@@ -128,6 +131,7 @@ class TaskStore:
                     item.due_date,
                     item.project,
                     item.context,
+                    item.outcome,
                     item.nudge_note,
                     item.created_at,
                     item.decided_at,
@@ -193,6 +197,35 @@ class TaskStore:
                 WHERE id = ?
                 """,
                 (status.value, decided, item_id),
+            )
+        return self.get(item_id)
+
+    _UPDATABLE_FIELDS = {
+        "title",
+        "source",
+        "assignee",
+        "due_date",
+        "project",
+        "context",
+        "outcome",
+        "nudge_note",
+    }
+
+    def update_fields(
+        self, item_id: str, **fields
+    ) -> Task | None:
+        allowed = {
+            k: v
+            for k, v in fields.items()
+            if k in self._UPDATABLE_FIELDS and v is not None
+        }
+        if not allowed:
+            return self.get(item_id)
+        cols = ", ".join(f"{k} = ?" for k in allowed)
+        params = list(allowed.values()) + [item_id]
+        with self._conn() as conn:
+            conn.execute(
+                f"UPDATE tasks SET {cols} WHERE id = ?", params
             )
         return self.get(item_id)
 
