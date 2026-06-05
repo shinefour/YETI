@@ -96,6 +96,13 @@ async def auth_middleware(request: Request, call_next):
     if path == "/mcp" or path.startswith("/mcp/"):
         return await call_next(request)
 
+    # RFC 9728 Protected Resource Metadata + OAuth Authorization Server
+    # discovery live under /.well-known/. The MCP transport advertises
+    # these from inside the 401 WWW-Authenticate header, so they must
+    # be reachable without the dashboard api key.
+    if path.startswith("/.well-known/"):
+        return await call_next(request)
+
     # Check cookie (dashboard sessions)
     session_token = request.cookies.get("yeti_session")
     if session_token and secrets.compare_digest(
