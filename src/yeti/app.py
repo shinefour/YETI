@@ -165,6 +165,44 @@ async def login_page():
     )
 
 
+@app.get("/.well-known/oauth-authorization-server/mcp")
+@app.get("/.well-known/oauth-authorization-server/mcp/")
+@app.get("/.well-known/oauth-authorization-server")
+async def oauth_authorization_server_metadata():
+    """RFC 8414 Authorization Server Metadata for the MCP issuer.
+
+    FastMCP serves this at /mcp/.well-known/oauth-authorization-server,
+    but RFC 8414 §3 says clients discover by inserting the well-known
+    suffix between host and path of the issuer URL — so for issuer
+    https://yeti.diconve.com/mcp the canonical location is
+    https://yeti.diconve.com/.well-known/oauth-authorization-server/mcp.
+    claude.ai uses the path-suffix variant; without this duplicate
+    route the connector cannot register dynamically.
+    """
+    public = (
+        settings.dashboard_public_url or "http://localhost:8000"
+    ).rstrip("/")
+    base = f"{public}/mcp"
+    return JSONResponse(
+        {
+            "issuer": base,
+            "authorization_endpoint": f"{base}/authorize",
+            "token_endpoint": f"{base}/token",
+            "registration_endpoint": f"{base}/register",
+            "response_types_supported": ["code"],
+            "grant_types_supported": [
+                "authorization_code",
+                "refresh_token",
+            ],
+            "token_endpoint_auth_methods_supported": [
+                "client_secret_post",
+                "client_secret_basic",
+            ],
+            "code_challenge_methods_supported": ["S256"],
+        }
+    )
+
+
 @app.get("/.well-known/oauth-protected-resource/mcp/")
 @app.get("/.well-known/oauth-protected-resource/mcp")
 async def oauth_protected_resource_mcp():
