@@ -2084,7 +2084,7 @@ async def people_contact_body_partial(id: str):
         parts.append(
             '<section class="muted" '
             'style="font-size:0.7rem;margin-top:0.5rem">'
-            f"Retrieved {hit_30d}× in last 30d{suffix}"
+            f"Retrieved {hit_30d}x in last 30d{suffix}"
             "</section>"
         )
 

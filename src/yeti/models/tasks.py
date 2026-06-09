@@ -10,6 +10,7 @@ import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -204,7 +205,7 @@ class TaskStore:
             )
         return self.get(item_id)
 
-    _UPDATABLE_FIELDS = {
+    _UPDATABLE_FIELDS: ClassVar[set[str]] = {
         "title",
         "source",
         "assignee",
@@ -227,7 +228,7 @@ class TaskStore:
         if not allowed:
             return self.get(item_id)
         cols = ", ".join(f"{k} = ?" for k in allowed)
-        params = list(allowed.values()) + [item_id]
+        params = [*allowed.values(), item_id]
         with self._conn() as conn:
             conn.execute(
                 f"UPDATE tasks SET {cols} WHERE id = ?", params
