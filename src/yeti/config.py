@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     claude_project_id: str = ""
 
     # --- LiteLLM ---
-    litellm_default_model: str = "claude-sonnet-4-20250514"
+    litellm_default_model: str = "claude-sonnet-4-6"
     litellm_fast_model: str = "claude-haiku-4-5-20251001"
     litellm_local_model: str = "ollama/llama3"
 
