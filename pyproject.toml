@@ -27,6 +27,7 @@ dependencies = [
     "python-multipart>=0.0.18",
     "markdown-it-py>=3.0",
     "bleach>=6.1",
+    "fastmcp",
 ]
 
 [project.optional-dependencies]
